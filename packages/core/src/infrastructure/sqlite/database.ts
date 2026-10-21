@@ -69,7 +69,19 @@ const MIGRATIONS: string[] = [
  */
 export function openDatabase(file: string): Db {
   if (file !== ':memory:') mkdirSync(dirname(file), { recursive: true });
-  const db = new Database(file);
+  let db: Db;
+  try {
+    db = new Database(file);
+  } catch (err) {
+    if ((err as { code?: string }).code !== 'SQLITE_CANTOPEN') throw err;
+    // Cas typique en Docker : bind mount cree par root, process non-root (uid 1000).
+    const uid = process.getuid?.() ?? '?';
+    throw new Error(
+      `Impossible d'ouvrir ${file} : le dossier ${dirname(file)} n'est pas accessible en ecriture ` +
+        `pour l'uid ${uid}. Sur l'hote : sudo chown -R ${uid}:${uid} <dossier monte sur /data>.`,
+      { cause: err },
+    );
+  }
   db.pragma('busy_timeout = 5000');
   db.pragma('journal_mode = WAL');
   db.pragma('synchronous = NORMAL');

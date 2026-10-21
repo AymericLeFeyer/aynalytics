@@ -20,7 +20,6 @@ Les deux images Docker partagent un dossier `data/` qui contient une base SQLite
 ```bash
 git clone <repo> aynalytics && cd aynalytics
 cp .env.example .env            # BASIC_AUTH_PASSWORD, COLLECTOR_PUBLIC_URL, PROXY_NETWORK
-mkdir -p data && sudo chown 1000:1000 data
 docker compose pull && docker compose up -d
 ```
 

@@ -152,7 +152,7 @@ Hooks (application) :
 ## Points d'attention
 
 - **Cache des sites dans le collector (10 s)** : un site cree/desactive/une cle regeneree n'est effectif qu'apres ce delai.
-- **SQLite partage entre 2 conteneurs** : le dossier `data` doit etre sur un FS local (pas NFS/SMB : verrous WAL) et appartenir a l'uid 1000 (`chown 1000:1000 data`).
+- **SQLite partage entre 2 conteneurs** : volume nomme `aynalytics_data` par defaut (herite des droits uid 1000 de l'image). Avec un bind mount (`DATA_PATH`), le dossier doit appartenir a l'uid 1000, sinon `SQLITE_CANTOPEN` au demarrage (Docker cree les bind mounts manquants en root) ; FS local obligatoire (pas NFS/SMB : verrous WAL).
 - **TRUST_PROXY** : ne jamais mettre `true` si le port du collector est joignable directement (X-Forwarded-For spoofable -> contournement du rate limit). Utiliser la liste CIDR du reverse proxy (`loopback,172.16.0.0/12,10.0.0.0/8` par defaut, doit couvrir le sous-reseau du reseau Pangolin).
 - **Deploiement Pangolin** : les 2 conteneurs rejoignent le reseau externe `PROXY_NETWORK` (defaut `pangolin`, doit exister avant `docker compose up`). Pangolin cible `aynalytics-collector:8080` (ressource publique, auth desactivee) et `aynalytics-dashboard:8081` (auth SSO). Les `container_name` sont fixes : ne pas les renommer sans mettre a jour les ressources Pangolin.
 - La cle publique est visible dans le HTML : la protection navigateur repose sur l'Origin, qui ne protege que contre les navigateurs, pas contre un script qui forge l'en-tete. Le rate limit + les bornes de payload limitent l'abus ; les donnees critiques (paiements) doivent passer par le SDK serveur avec cle secrete.

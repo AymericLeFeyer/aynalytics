@@ -2,9 +2,8 @@
 # Publication via Pangolin : les conteneurs rejoignent le reseau Docker de Pangolin,
 # Traefik (Pangolin) les joint par leur nom. Aucun port n'est publie sur Internet.
 # 1. cp .env.example .env et remplir les valeurs
-# 2. mkdir -p data && sudo chown 1000:1000 data
-# 3. docker compose up -d   (images GHCR, ou --build pour construire localement)
-# 4. Pangolin : ressource publique -> aynalytics-collector:8080, ressource protegee (SSO) -> aynalytics-dashboard:8081
+# 2. docker compose up -d   (images GHCR, ou --build pour construire localement)
+# 3. Pangolin : ressource publique -> aynalytics-collector:8080, ressource protegee (SSO) -> aynalytics-dashboard:8081
 name: aynalytics
 
 x-hardening: &hardening
@@ -17,7 +16,9 @@ x-hardening: &hardening
   security_opt:
     - no-new-privileges:true
   volumes:
-    - ${DATA_PATH:-./data}:/data
+    # Volume nomme par defaut : initialise avec les droits de l'image (uid 1000), aucun chown a faire.
+    # Pour un dossier hote, DATA_PATH=/chemin/absolu (doit appartenir a l'uid 1000).
+    - ${DATA_PATH:-aynalytics_data}:/data
   networks:
     - proxy
 
@@ -48,6 +49,10 @@ services:
       BASIC_AUTH_PASSWORD: ${BASIC_AUTH_PASSWORD:?BASIC_AUTH_PASSWORD est requis}
       COLLECTOR_PUBLIC_URL: ${COLLECTOR_PUBLIC_URL:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+
+volumes:
+  aynalytics_data:
+    name: aynalytics_data
 
 networks:
   proxy:
