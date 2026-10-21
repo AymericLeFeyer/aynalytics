@@ -38,6 +38,29 @@ export interface TrackedEvent {
   device: string | null;
   language: string | null;
   screenWidth: number | null;
+  /** Titre de la page au moment de l'evenement. */
+  title: string | null;
+  /** Geolocalisation deduite de l'IP (jamais stockee) : pays ISO-3166 alpha-2, region, ville. */
+  country: string | null;
+  region: string | null;
+  city: string | null;
+  timezone: string | null;
+  screenHeight: number | null;
+  viewportWidth: number | null;
+  viewportHeight: number | null;
+  pixelRatio: number | null;
+  colorScheme: string | null;
+  connection: string | null;
+  /** Donnees navigateur secondaires (langues, CPU, memoire, tactile, coordonnees approx...). */
+  context: EventProperties;
+}
+
+export interface GeoLocation {
+  country: string | null;
+  region: string | null;
+  city: string | null;
+  latitude: number | null;
+  longitude: number | null;
 }
 
 export interface StoredEvent extends TrackedEvent {

@@ -12,11 +12,13 @@ export class SqliteEventRepository implements EventRepository {
       INSERT INTO events (
         site_id, type, name, properties, ts, received_at, visitor_hash, session_id, anonymous_id, user_id,
         url, path, referrer, referrer_host, source, utm_source, utm_medium, utm_campaign, utm_term, utm_content,
-        browser, os, device, language, screen_width
+        browser, os, device, language, screen_width, title, country, region, city, timezone,
+        screen_height, viewport_width, viewport_height, pixel_ratio, color_scheme, connection, context
       ) VALUES (
         @siteId, @type, @name, @properties, @ts, @receivedAt, @visitorHash, @sessionId, @anonymousId, @userId,
         @url, @path, @referrer, @referrerHost, @source, @utmSource, @utmMedium, @utmCampaign, @utmTerm, @utmContent,
-        @browser, @os, @device, @language, @screenWidth
+        @browser, @os, @device, @language, @screenWidth, @title, @country, @region, @city, @timezone,
+        @screenHeight, @viewportWidth, @viewportHeight, @pixelRatio, @colorScheme, @connection, @context
       )`);
     this.insertAll = db.transaction((events: TrackedEvent[]) => {
       for (const e of events) {
@@ -46,6 +48,18 @@ export class SqliteEventRepository implements EventRepository {
           device: e.device,
           language: e.language,
           screenWidth: e.screenWidth,
+          title: e.title,
+          country: e.country,
+          region: e.region,
+          city: e.city,
+          timezone: e.timezone,
+          screenHeight: e.screenHeight,
+          viewportWidth: e.viewportWidth,
+          viewportHeight: e.viewportHeight,
+          pixelRatio: e.pixelRatio,
+          colorScheme: e.colorScheme,
+          connection: e.connection,
+          context: JSON.stringify(e.context),
         });
       }
     });

@@ -11,9 +11,19 @@ interface Props {
   /** Rend les lignes cliquables (drill-down). */
   onSelect?: (value: string) => void;
   extra?: ReactNode;
+  /** Libelle affiche (la valeur brute reste utilisee pour le drill-down). */
+  formatValue?: (value: string) => string;
 }
 
-export function TopTable({ title, rows, loading, valueLabel = 'Valeur', onSelect, extra }: Props) {
+export function TopTable({
+  title,
+  rows,
+  loading,
+  valueLabel = 'Valeur',
+  onSelect,
+  extra,
+  formatValue = (value) => value,
+}: Props) {
   const max = Math.max(1, ...(rows ?? []).map((r) => r.count));
   return (
     <Card size="small" title={title} extra={extra} styles={{ body: { padding: 0 } }}>
@@ -35,7 +45,7 @@ export function TopTable({ title, rows, loading, valueLabel = 'Valeur', onSelect
             ellipsis: true,
             render: (value: string, row) => (
               <div>
-                <Typography.Text ellipsis={{ tooltip: value }}>{value}</Typography.Text>
+                <Typography.Text ellipsis={{ tooltip: value }}>{formatValue(value)}</Typography.Text>
                 <Progress
                   percent={(row.count / max) * 100}
                   showInfo={false}

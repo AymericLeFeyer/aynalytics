@@ -2,7 +2,7 @@ import { Button, Card, Descriptions, Table, Tag, Typography } from 'antd';
 import type { ReactNode } from 'react';
 import { useEventStream } from '../../application/analytics/usecases/analyticsUseCases';
 import type { EventQuery, StatsFilter, TrackedEvent } from '../../domain/analytics/entities/Stats';
-import { formatDateTime } from '../../shared/format';
+import { formatCountry, formatDateTime, formatDimensionValue } from '../../shared/format';
 
 const compact = (properties: TrackedEvent['properties']): string => {
   const text = JSON.stringify(properties);
@@ -28,6 +28,29 @@ function EventDetails({ event }: { event: TrackedEvent }) {
       <Descriptions.Item label="Session">{event.sessionId ?? '-'}</Descriptions.Item>
       <Descriptions.Item label="Environnement">
         {[event.device, event.os, event.browser, event.language].filter(Boolean).join(' · ') || '-'}
+      </Descriptions.Item>
+      <Descriptions.Item label="Titre">{event.title ?? '-'}</Descriptions.Item>
+      <Descriptions.Item label="Localisation">
+        {[event.city, event.region, event.country && formatCountry(event.country)]
+          .filter(Boolean)
+          .join(', ') || '-'}
+        {event.timezone && <Typography.Text type="secondary"> ({event.timezone})</Typography.Text>}
+      </Descriptions.Item>
+      <Descriptions.Item label="Affichage">
+        {[
+          event.screenWidth && `écran ${event.screenWidth}x${event.screenHeight ?? '?'}`,
+          event.viewportWidth && `fenêtre ${event.viewportWidth}x${event.viewportHeight ?? '?'}`,
+          event.pixelRatio && `x${event.pixelRatio}`,
+          event.colorScheme && formatDimensionValue('color_scheme', event.colorScheme),
+        ]
+          .filter(Boolean)
+          .join(' · ') || '-'}
+      </Descriptions.Item>
+      <Descriptions.Item label="Réseau">{event.connection ?? '-'}</Descriptions.Item>
+      <Descriptions.Item label="Contexte navigateur" span={2}>
+        <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+          {JSON.stringify(event.context, null, 2)}
+        </pre>
       </Descriptions.Item>
     </Descriptions>
   );

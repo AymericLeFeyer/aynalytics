@@ -1,7 +1,7 @@
 # aynalytics — CLAUDE.md
 
 > Analytics self-hosted : SDK de tracking (screens + events a proprietes libres) -> collector public -> dashboard interne (Pangolin SSO).
-> **Dernière mise à jour : 2026-10-21** (deploiement via le reseau Docker de Pangolin, plus de port publie)
+> **Dernière mise à jour : 2026-10-21** (v0.2 : geolocalisation IP DB-IP, contexte navigateur, clics sortants automatiques, migration v2)
 
 ## Stack
 
@@ -11,7 +11,8 @@
 | Data   | `@tanstack/react-query` v5, `fetch` centralise (`httpClient`), `dayjs`, `react-router-dom` 6      |
 | Back   | **Fastify 5** + TypeScript, `zod` 4, `@fastify/rate-limit`, `@fastify/static`                     |
 | DB     | **SQLite** (`better-sqlite3` 12, WAL) — fichier `${DATA_DIR}/aynalytics.db` partage               |
-| SDK    | TS sans dependance, build `tsup` : ESM/CJS + IIFE minifiee (~6 Ko) servie sur `/sdk.js`           |
+| SDK    | TS sans dependance, build `tsup` : ESM/CJS + IIFE minifiee (~9 Ko) servie sur `/sdk.js`           |
+| Geo    | `maxmind` 4 (lecteur mmdb) + base **DB-IP Lite** (CC BY 4.0) telechargee dans `/data/geo`         |
 | Tests  | `vitest` 4 (racine), `happy-dom` pour le SDK, `fastify.inject` pour les API                       |
 | Deploy | 1 `Dockerfile` multi-target -> 2 images (`collector`, `dashboard`), `docker-compose.yml`, CI GHCR |
 
@@ -31,8 +32,9 @@ apps/collector/src/         # serveur PUBLIC d'ingestion
   application/sites/SiteRegistry.ts            # cache memoire des sites actifs (TTL 10 s)
   application/ingest/usecases/{AuthorizeCollect,IngestEvents}.ts
   application/maintenance/usecases/PurgeExpiredData.ts
+  infrastructure/geo/{DbIpDownloader,MmdbGeoLocator}.ts   # telechargement mensuel + lookup IP -> pays/region/ville
   presentation/{plugins/security.ts, routes/collect.ts, routes/sdk.ts}
-  app.ts (buildCollector, testable) / server.ts (bootstrap + purge horaire)
+  app.ts (buildCollector, testable) / server.ts (bootstrap + purge horaire + rafraichissement geo quotidien)
 apps/dashboard-api/src/     # API INTERNE + sert le build du front
   application/sites/usecases/{ListSites,CreateSite,UpdateSite,RotateSiteSecret,DeleteSite,siteValidation}.ts
   application/analytics/usecases/{GetOverview,GetTimeseries,GetTopValues,GetPropertyKeys,GetPropertyBreakdown,ListEvents}.ts
@@ -57,9 +59,10 @@ apps/dashboard-web/src/     # SPA DDD
 
 ### events
 
-- **TrackedEvent** : `siteId, type ('screen'|'event'), name, properties (JSON libre), ts, receivedAt, visitorHash, sessionId, anonymousId, userId, url, path, referrer, referrerHost, source, utm{source,medium,campaign,term,content}, browser, os, device, language, screenWidth`.
+- **TrackedEvent** : `siteId, type ('screen'|'event'), name, properties (JSON libre), ts, receivedAt, visitorHash, sessionId, anonymousId, userId, url, path, referrer, referrerHost, source, utm{source,medium,campaign,term,content}, browser, os, device, language, screenWidth` + (v2) `title, country (ISO2), region, city, timezone, screenHeight, viewportWidth, viewportHeight, pixelRatio, colorScheme, connection, context` (JSON : languages, cpuCores, deviceMemory, touchPoints, platform, mobile, saveData, reducedMotion, latitude/longitude de la ville).
+- **GeoLocator** (interface) : `locate(ip) -> GeoLocation { country, region, city, latitude, longitude } | null`. Implementation `MmdbGeoLocator` (collector). Jamais appele pour un envoi serveur.
 - **EventRepository** : `insertMany(events)`, `purgeBefore(ts) -> n`, `deleteBySite(siteId) -> n`. **SaltRepository** : `getOrCreate(day 'YYYY-MM-DD')`, `purgeOlderThan(day)`.
-- `collectPayloadSchema` = `{ siteKey, events: IncomingEvent[1..50] }`. `LIMITS` : nom <= 100, <= 50 cles, cle <= 64, string <= 1000, tableau <= 50, profondeur <= 3, proprietes <= 8 Ko serialisees.
+- `collectPayloadSchema` = `{ siteKey, events: IncomingEvent[1..50] }` ; `IncomingEvent.context` valide par `contextSchema` (champs inconnus ignores). `LIMITS` : nom <= 100, <= 50 cles, cle <= 64, string <= 1000, tableau <= 50, profondeur <= 3, proprietes <= 8 Ko serialisees.
 - `buildTrackedEvent(input, ctx)` : URL nettoyee (`sanitizeUrl` : garde seulement `utm_*`), UTM explicites (session SDK) > UTM de l'URL, `source` = utm_source > domaine referent externe (sans `www.`) > `direct` ; `server` pour un envoi backend sans UTM/referent. `clampTimestamp` : ts client accepte si dans [-24 h (7 j serveur), +5 min], sinon `receivedAt`.
 - `visitorHash` = sha256(sel du jour | site | IP | UA) tronque a 32 hex. Aucune IP ni UA brut stocke.
 
@@ -67,14 +70,15 @@ apps/dashboard-web/src/     # SPA DDD
 
 - **StatsFilter** `{ siteId?, from, to, type?, name?, source?, path? }` (ms, `to` exclusif).
 - **AnalyticsRepository** : `overview(f)`, `timeseries(f, 'hour'|'day', tzOffsetMinutes)` (trous remplis a 0), `top(f, dimension, limit)`, `propertyKeys(f)`, `propertyBreakdown(f, key, limit) -> { rows, numeric: {count,sum,avg,min,max}|null }`, `listEvents(f, { limit, before?, propKey?, propValue? })`.
-- `DIMENSIONS` : `name, path, source, referrer (->referrer_host), utm_source, utm_medium, utm_campaign, browser, os, device, language`.
+- `DIMENSIONS` (dimension -> **expression SQL** whitelistee) : `name, path, title, source, referrer (->referrer_host), utm_source, utm_medium, utm_campaign, browser, os, device, language, country, region, city, timezone, screen (largeur x hauteur), color_scheme, connection`.
+- **Visiteurs uniques** = `COUNT(DISTINCT COALESCE(anonymous_id, visitor_hash))` partout (overview, series, tops) : identifiant persistant du SDK s'il existe, sinon hash journalier.
 
 ## Use cases (signatures `execute`)
 
 Collector :
 
 - `AuthorizeCollect.execute({ siteKey, origin, authorization }) -> { ok: true, site, serverSide } | { ok: false, reason: 'unknown_site'|'invalid_secret'|'origin_not_allowed' }`
-- `IngestEvents.execute({ site, events, ip, userAgent, serverSide }) -> number` (0 si bot)
+- `IngestEvents.execute({ site, events, ip, userAgent, serverSide }) -> number` (0 si bot ; une geolocalisation par lot)
 - `PurgeExpiredData.execute() -> { purgedEvents }` (sels > 1 jour + retention `RETENTION_DAYS`)
 
 Dashboard :
@@ -116,7 +120,7 @@ Contraintes de requete stats : `to > from`, plage <= 2 ans.
 
 ## Front
 
-Routes : `/` (OverviewPage : KPIs + variation, courbe, top ecrans/events cliquables, acquisition, techno), `/events?type&name&key&value` (EventsPage : explorateur, proprietes dynamiques, flux brut pagine), `/sites` (SitesPage : CRUD, cle secrete, snippets).
+Routes : `/` (OverviewPage : KPIs Visiteurs uniques / Visites / Pages vues / Evenements + variation, courbe, top ecrans/events cliquables, acquisition, localisation, technologie, preferences, titres), `/events?type&name&key&value` (EventsPage : explorateur, proprietes dynamiques, flux brut pagine), `/sites` (SitesPage : CRUD, cle secrete, snippets).
 
 Hooks (application) :
 
@@ -129,8 +133,12 @@ Hooks (application) :
 
 ## SDK
 
-- `init({ siteKey, endpoint, autoScreens=true, autoClicks=true, persistence='session'|'local'|'memory', respectDoNotTrack=false, debug })`, `track(name, props)`, `screen(name?, props)`, `identify(userId|null)`, `reset()`, `flush()`.
-- Balise : `<script defer src="<collector>/sdk.js" data-site-key="ay_pk_..." [data-auto-screens="false"] [data-persistence="local"] [data-respect-dnt="true"]>` ; endpoint = origine du script. Stub `window.aynalytics.q` rejoue.
+- `init({ siteKey, endpoint, autoScreens=true, autoClicks=true, outboundLinks=true, classifyLink?, persistence='session'|'local'|'memory', respectDoNotTrack=false, debug })`, `track(name, props)`, `screen(name?, props)`, `identify(userId|null)`, `reset()`, `flush()`.
+- Chaque evenement embarque `title` (document.title) et `context` (fuseau, langues, ecran/fenetre, DPR, theme, reduced-motion, connexion, CPU, memoire, tactile, platform UA-CH). Aucune API a permission (pas de Geolocation API).
+- **Screens auto** : 300 ms apres le changement de route (le titre a eu le temps d'etre mis a jour) ; une route quittee avant le delai est abandonnee ; un screen en attente part sur `flush`/`pagehide`.
+- **Clics sortants** : tout lien externe, `mailto:`, `tel:` -> `outbound_click { url, host, text, section, ...data-ay-prop-* }`. `section` = `data-ay-section` > `<section id>` > landmark (header/nav/footer/aside/main). `classifyLink(link)` (appele pour tout lien hors `data-ay-event`, internes compris) : retourne `{ name, properties }` pour renommer, `false` pour ignorer, `null` = defaut.
+- `persistence: 'local'` : anonymousId `{ id, createdAt }` en localStorage, renouvele apres 13 mois.
+- Balise : `<script defer src="<collector>/sdk.js" data-site-key="ay_pk_..." [data-auto-screens="false"] [data-persistence="local"] [data-respect-dnt="true"]>` ; endpoint = origine du script. Stub `window.aynalytics.q` rejoue apres l'init ; sans `data-site-key`, appeler `window.aynalytics.init({...})` depuis le code (necessaire pour passer `classifyLink`) : les appels faits avant sont mis en file.
 - Clics sans JS : `data-ay-event="purchase_click"` + `data-ay-prop-<cle>="valeur"` (nombres/booleens convertis, `href` ajoute pour les liens) -> envoi immediat via `sendBeacon`.
 - File : flush apres 1 s ou 20 evenements, `sendBeacon` sur `pagehide`/`visibilitychange`. Session 30 min d'inactivite, stocke referent externe + UTM d'arrivee.
 - Serveur : `createServerClient({ endpoint, siteKey, secretKey })` depuis `@aynalytics/sdk/server` (Bearer).
@@ -157,5 +165,8 @@ Hooks (application) :
 - **Deploiement Pangolin** : les 2 conteneurs rejoignent le reseau externe `PROXY_NETWORK` (defaut `pangolin`, doit exister avant `docker compose up`). Pangolin cible `aynalytics-collector:8080` (ressource publique, auth desactivee) et `aynalytics-dashboard:8081` (auth SSO). Les `container_name` sont fixes : ne pas les renommer sans mettre a jour les ressources Pangolin.
 - La cle publique est visible dans le HTML : la protection navigateur repose sur l'Origin, qui ne protege que contre les navigateurs, pas contre un script qui forge l'en-tete. Le rate limit + les bornes de payload limitent l'abus ; les donnees critiques (paiements) doivent passer par le SDK serveur avec cle secrete.
 - `visitorHash` change chaque jour (sel tournant) : les "visiteurs" sont uniques **par jour** ; sur une periode longue, c'est une somme approx. Pour du recurrent, `persistence: 'local'` (anonymousId) — peut necessiter un consentement.
+- **Geolocalisation** : base DB-IP telechargee au demarrage puis verifiee chaque jour (retelechargee si > 32 jours, fallback mois precedent), rechargee a chaud. Sans reseau, la collecte continue sans localisation. `GEOIP=city` ~120 Mo de RAM / 5 s de chargement, `country` ~10 Mo. Attribution "IP Geolocation by DB-IP" obligatoire (affichee dans la sidebar du dashboard).
+- **Diagnostic IP reelle** : si tous les visiteurs sont a **Roubaix** (IP OVH du VPS) ou sans pays (IP Docker privee), le collector ne recoit pas l'IP client -> verifier `TRUST_PROXY` / X-Forwarded-For de Pangolin.
+- SDK : dans happy-dom, cliquer un lien sans `target="_blank"` navigue reellement (meme avec `preventDefault`) et fausse les tests suivants : toujours `target="_blank"` dans les fixtures.
 - Vite 8 est impose par vitest 4 (hoisting) : garder la meme majeure de Vite dans `dashboard-web`, sinon conflit de types du plugin React.
 - `typescript-eslint`/`eslint` 9 : ne pas monter eslint 10 tant que les plugins ne suivent pas.

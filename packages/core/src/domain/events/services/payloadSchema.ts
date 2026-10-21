@@ -61,6 +61,27 @@ const eventName = z
 
 const identifier = z.string().min(1).max(LIMITS.maxIdLength);
 const shortText = z.string().max(200);
+const dimension = z.number().int().min(0).max(20000);
+
+/** Donnees navigateur collectees sans permission (pas de Geolocation API). Champs inconnus ignores. */
+export const contextSchema = z.object({
+  timezone: z.string().max(64).optional(),
+  languages: z.array(z.string().max(35)).max(10).optional(),
+  screenHeight: dimension.optional(),
+  viewportWidth: dimension.optional(),
+  viewportHeight: dimension.optional(),
+  pixelRatio: z.number().min(0).max(10).optional(),
+  colorScheme: z.enum(['light', 'dark']).optional(),
+  reducedMotion: z.boolean().optional(),
+  connection: z.string().max(20).optional(),
+  saveData: z.boolean().optional(),
+  deviceMemory: z.number().min(0).max(1024).optional(),
+  cpuCores: z.number().int().min(0).max(1024).optional(),
+  touchPoints: z.number().int().min(0).max(100).optional(),
+  platform: z.string().max(50).optional(),
+  mobile: z.boolean().optional(),
+});
+export type BrowserContext = z.infer<typeof contextSchema>;
 
 export const incomingEventSchema = z.object({
   type: z.enum(['screen', 'event']),
@@ -83,6 +104,8 @@ export const incomingEventSchema = z.object({
   userId: identifier.optional(),
   language: z.string().max(35).optional(),
   screenWidth: z.number().int().min(0).max(20000).optional(),
+  title: z.string().max(300).optional(),
+  context: contextSchema.optional(),
 });
 
 export const collectPayloadSchema = z.object({

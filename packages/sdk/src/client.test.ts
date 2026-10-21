@@ -96,17 +96,101 @@ describe('AynalyticsClient', () => {
     });
   });
 
-  it('trace un screen a chaque changement de route', () => {
-    client = new AynalyticsClient(OPTIONS);
-    history.pushState({}, '', '/blog');
-    history.pushState({}, '', '/blog');
-    history.replaceState({}, '', '/blog?tri=date');
-    history.pushState({}, '', '/contact');
+  it('trace un screen par route, apres mise a jour du titre, et ignore les routes quittees aussitot', () => {
+    vi.useFakeTimers();
+    try {
+      document.title = 'Accueil';
+      client = new AynalyticsClient(OPTIONS);
+      vi.advanceTimersByTime(300);
+      history.pushState({}, '', '/redirection');
+      history.pushState({}, '', '/blog');
+      document.title = 'Blog';
+      history.pushState({}, '', '/blog');
+      history.replaceState({}, '', '/blog?tri=date');
+      vi.advanceTimersByTime(300);
+      history.pushState({}, '', '/contact');
+      document.title = 'Contact';
+      // Fermeture de page avant le delai : le screen en attente part quand meme.
+      client.flush();
+      const screens = fetchedPayloads()
+        .flatMap((p) => p.events)
+        .map((e) => `${e.name}|${e.title}`);
+      expect(screens).toEqual(['/|Accueil', '/blog|Blog', '/contact|Contact']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('joint le contexte navigateur a chaque evenement', () => {
+    client = new AynalyticsClient({ ...OPTIONS, autoScreens: false });
+    client.track('x');
     client.flush();
-    const screens = fetchedPayloads()
-      .flatMap((p) => p.events)
-      .map((e) => `${e.type}:${e.name}`);
-    expect(screens).toEqual(['screen:/', 'screen:/blog', 'screen:/contact']);
+    const [event] = fetchedPayloads().flatMap((p) => p.events);
+    expect(event?.context?.timezone).toBeTruthy();
+    expect(event?.context).toMatchObject({
+      viewportWidth: expect.any(Number),
+      viewportHeight: expect.any(Number),
+      colorScheme: expect.stringMatching(/light|dark/),
+    });
+  });
+
+  it('trace les liens sortants avec leur section, ignore les liens internes', async () => {
+    document.body.innerHTML = `
+      <footer><a id="yt" target="_blank" href="https://www.youtube.com/@ay_labs" data-ay-prop-network="youtube"> YouTube </a></footer>
+      <a id="mail" target="_blank" href="mailto:contact@aylabs.fr?subject=Collab">Mail</a>
+      <a id="internal" target="_blank" href="/videos">Vidéos</a>`;
+    client = new AynalyticsClient({ ...OPTIONS, autoScreens: false });
+    for (const id of ['yt', 'mail', 'internal']) {
+      document.getElementById(id)?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    }
+    const events = (await beaconPayloads()).flatMap((p) => p.events);
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({
+      name: 'outbound_click',
+      properties: { host: 'youtube.com', text: 'YouTube', section: 'footer', network: 'youtube' },
+    });
+    expect(events[1]?.properties).toMatchObject({ url: 'mailto:contact@aylabs.fr', host: 'mailto' });
+  });
+
+  it('classifyLink renomme, enrichit ou ignore les clics de liens', async () => {
+    document.body.innerHTML = `
+      <a id="shop" target="_blank" href="https://www.amazon.fr/dp/X">Acheter</a>
+      <a id="internal" target="_blank" href="/domadoo">Domadoo</a>
+      <a id="ignored" target="_blank" href="https://exemple.org">Ignoré</a>`;
+    client = new AynalyticsClient({
+      ...OPTIONS,
+      autoScreens: false,
+      classifyLink: ({ url }) => {
+        if (url.hostname.endsWith('amazon.fr'))
+          return { name: 'merchant_click', properties: { merchant: 'Amazon' } };
+        if (url.pathname === '/domadoo')
+          return { name: 'merchant_click', properties: { merchant: 'Domadoo' } };
+        if (url.hostname === 'exemple.org') return false;
+        return null;
+      },
+    });
+    for (const id of ['internal', 'shop', 'ignored']) {
+      document.getElementById(id)?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    }
+    const events = (await beaconPayloads()).flatMap((p) => p.events);
+    expect(events.map((e) => [e.name, e.properties?.merchant])).toEqual([
+      ['merchant_click', 'Domadoo'],
+      ['merchant_click', 'Amazon'],
+    ]);
+    expect(events[1]?.properties?.host).toBe('amazon.fr');
+  });
+
+  it("renouvelle l'identifiant anonyme apres 13 mois", () => {
+    localStorage.setItem(
+      'aynalytics:anonymousId',
+      JSON.stringify({ id: 'ancien', createdAt: Date.now() - 400 * 86_400_000 }),
+    );
+    client = new AynalyticsClient({ ...OPTIONS, autoScreens: false, persistence: 'local' });
+    client.track('x');
+    client.flush();
+    const [event] = fetchedPayloads().flatMap((p) => p.events);
+    expect(event?.anonymousId).toBeTruthy();
+    expect(event?.anonymousId).not.toBe('ancien');
   });
 
   it('persistence local : identifiant anonyme stable, identify/reset', () => {

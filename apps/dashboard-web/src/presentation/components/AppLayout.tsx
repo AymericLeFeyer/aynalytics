@@ -32,6 +32,12 @@ export function AppLayout() {
           onClick={({ key }) => navigate(key)}
           style={{ borderInlineEnd: 'none' }}
         />
+        {/* Attribution exigee par la licence CC BY 4.0 de la base de geolocalisation. */}
+        <Typography.Text type="secondary" style={{ display: 'block', padding: '16px 24px', fontSize: 12 }}>
+          <a href="https://db-ip.com" target="_blank" rel="noopener noreferrer">
+            IP Geolocation by DB-IP
+          </a>
+        </Typography.Text>
       </Layout.Sider>
       <Layout>
         {showFilters && (

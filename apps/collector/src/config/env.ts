@@ -9,6 +9,8 @@ const schema = z.object({
   RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(240),
   /** 0 = conservation illimitee. */
   RETENTION_DAYS: z.coerce.number().int().min(0).default(0),
+  /** Geolocalisation IP via DB-IP Lite : `city` (~130 Mo en RAM), `country` (~10 Mo) ou `off`. */
+  GEOIP: z.enum(['city', 'country', 'off']).default('city'),
   SDK_DIR: z.string().default('../../packages/sdk/dist'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 });

@@ -11,7 +11,15 @@ export type Dimension =
   | 'browser'
   | 'os'
   | 'device'
-  | 'language';
+  | 'language'
+  | 'title'
+  | 'country'
+  | 'region'
+  | 'city'
+  | 'timezone'
+  | 'screen'
+  | 'color_scheme'
+  | 'connection';
 
 export interface StatsFilter {
   siteId?: string;
@@ -87,6 +95,19 @@ export interface TrackedEvent {
   os: string | null;
   device: string | null;
   language: string | null;
+  screenWidth: number | null;
+  title: string | null;
+  country: string | null;
+  region: string | null;
+  city: string | null;
+  timezone: string | null;
+  screenHeight: number | null;
+  viewportWidth: number | null;
+  viewportHeight: number | null;
+  pixelRatio: number | null;
+  colorScheme: string | null;
+  connection: string | null;
+  context: Record<string, JsonValue>;
 }
 
 export interface EventQuery {

@@ -10,7 +10,7 @@ export const DB_FILENAME = 'aynalytics.db';
  * Migrations sequentielles (index = user_version). Ne jamais modifier une migration deja deployee :
  * en ajouter une nouvelle a la fin.
  */
-const MIGRATIONS: string[] = [
+export const MIGRATIONS: readonly string[] = [
   `
   CREATE TABLE sites (
     id TEXT PRIMARY KEY,
@@ -59,6 +59,21 @@ const MIGRATIONS: string[] = [
     day TEXT PRIMARY KEY,
     value TEXT NOT NULL
   );
+  `,
+  // v2 : titre de page, geolocalisation IP, contexte navigateur.
+  `
+  ALTER TABLE events ADD COLUMN title TEXT;
+  ALTER TABLE events ADD COLUMN country TEXT;
+  ALTER TABLE events ADD COLUMN region TEXT;
+  ALTER TABLE events ADD COLUMN city TEXT;
+  ALTER TABLE events ADD COLUMN timezone TEXT;
+  ALTER TABLE events ADD COLUMN screen_height INTEGER;
+  ALTER TABLE events ADD COLUMN viewport_width INTEGER;
+  ALTER TABLE events ADD COLUMN viewport_height INTEGER;
+  ALTER TABLE events ADD COLUMN pixel_ratio REAL;
+  ALTER TABLE events ADD COLUMN color_scheme TEXT;
+  ALTER TABLE events ADD COLUMN connection TEXT;
+  ALTER TABLE events ADD COLUMN context TEXT NOT NULL DEFAULT '{}';
   `,
 ];
 

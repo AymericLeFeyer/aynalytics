@@ -1,12 +1,25 @@
-import type { AynalyticsOptions, EventType, Properties, WireEvent, WireUtm } from './types';
+import type {
+  AynalyticsOptions,
+  EventType,
+  LinkClick,
+  Properties,
+  WireContext,
+  WireEvent,
+  WireUtm,
+} from './types';
 
 const SESSION_TTL_MS = 30 * 60_000;
+/** Duree de vie max de l'identifiant anonyme persistant (13 mois, recommandation CNIL). */
+const ANONYMOUS_ID_TTL_MS = 395 * 86_400_000;
+/** Delai avant l'envoi d'un screen automatique : laisse le temps au routeur de mettre a jour le titre. */
+const AUTO_SCREEN_DELAY_MS = 300;
 const FLUSH_DELAY_MS = 1000;
 const MAX_QUEUE = 20;
 const MAX_BATCH = 50;
 const STORAGE_PREFIX = 'aynalytics:';
 const PROP_ATTR_PREFIX = 'data-ay-prop-';
 const UTM_KEYS = ['source', 'medium', 'campaign', 'term', 'content'] as const;
+const LANDMARKS = 'header, nav, footer, aside, main';
 
 interface SessionState {
   id: string;
@@ -15,6 +28,18 @@ interface SessionState {
   referrer?: string;
   utm?: WireUtm;
 }
+
+interface StoredAnonymousId {
+  id: string;
+  createdAt: number;
+}
+
+type NavigatorExtras = Navigator & {
+  globalPrivacyControl?: boolean;
+  deviceMemory?: number;
+  connection?: { effectiveType?: string; saveData?: boolean };
+  userAgentData?: { platform?: string; mobile?: boolean };
+};
 
 const isBrowser = (): boolean => typeof window !== 'undefined' && typeof document !== 'undefined';
 
@@ -69,8 +94,41 @@ function externalReferrer(): string | undefined {
 }
 
 function isDoNotTrack(): boolean {
-  const nav = navigator as Navigator & { globalPrivacyControl?: boolean };
+  const nav = navigator as NavigatorExtras;
   return nav.doNotTrack === '1' || nav.globalPrivacyControl === true;
+}
+
+const matches = (query: string): boolean => {
+  try {
+    return window.matchMedia?.(query).matches ?? false;
+  } catch {
+    return false;
+  }
+};
+
+/** Tout ce que le navigateur expose sans demander de permission. */
+function collectContext(): WireContext {
+  const nav = navigator as NavigatorExtras;
+  const context: WireContext = {
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    languages: nav.languages?.slice(0, 10),
+    screenHeight: window.screen?.height,
+    viewportWidth: window.innerWidth,
+    viewportHeight: window.innerHeight,
+    pixelRatio: Math.round((window.devicePixelRatio || 1) * 100) / 100,
+    colorScheme: matches('(prefers-color-scheme: dark)') ? 'dark' : 'light',
+    reducedMotion: matches('(prefers-reduced-motion: reduce)'),
+    connection: nav.connection?.effectiveType,
+    saveData: nav.connection?.saveData,
+    deviceMemory: nav.deviceMemory,
+    cpuCores: nav.hardwareConcurrency,
+    touchPoints: nav.maxTouchPoints,
+    platform: nav.userAgentData?.platform,
+    mobile: nav.userAgentData?.mobile,
+  };
+  return Object.fromEntries(
+    Object.entries(context).filter(([, v]) => v !== undefined && v !== ''),
+  ) as WireContext;
 }
 
 /** Valeur d'attribut data-ay-prop-* : nombres et booleens convertis, le reste en texte. */
@@ -81,9 +139,26 @@ function coerceAttribute(value: string): string | number | boolean {
   return value;
 }
 
+function attributeProperties(element: Element): Properties {
+  const properties: Properties = {};
+  for (const attr of Array.from(element.attributes)) {
+    if (attr.name.startsWith(PROP_ATTR_PREFIX)) {
+      properties[attr.name.slice(PROP_ATTR_PREFIX.length)] = coerceAttribute(attr.value);
+    }
+  }
+  return properties;
+}
+
+function sectionOf(element: Element): string | undefined {
+  const tagged = element.closest('[data-ay-section]')?.getAttribute('data-ay-section');
+  const section = element.closest('section[id]')?.id;
+  return tagged || section || element.closest(LANDMARKS)?.tagName.toLowerCase();
+}
+
 export class AynalyticsClient {
   private queue: WireEvent[] = [];
   private timer: ReturnType<typeof setTimeout> | undefined;
+  private pendingScreen: ReturnType<typeof setTimeout> | undefined;
   private session: SessionState | undefined;
   private anonymousId: string | undefined;
   private userId: string | undefined;
@@ -98,17 +173,16 @@ export class AynalyticsClient {
     this.enabled = isBrowser() && !(options.respectDoNotTrack && isDoNotTrack());
     if (!this.enabled) return;
 
-    if (this.persistence === 'local') {
-      this.anonymousId = readJson<string>(this.localStore, 'anonymousId') ?? uuid();
-      writeJson(this.localStore, 'anonymousId', this.anonymousId);
-    }
+    if (this.persistence === 'local') this.anonymousId = this.loadAnonymousId();
     this.userId = readJson<string>(this.sessionStore, 'userId') ?? undefined;
 
     this.listen(window, 'pagehide', () => this.flush(true));
     this.listen(document, 'visibilitychange', () => {
       if (document.visibilityState === 'hidden') this.flush(true);
     });
-    if (options.autoClicks !== false) this.listen(document, 'click', this.onClick, true);
+    if (options.autoClicks !== false || options.outboundLinks !== false || options.classifyLink) {
+      this.listen(document, 'click', this.onClick, true);
+    }
     if (options.autoScreens !== false) this.watchRoutes();
   }
 
@@ -133,14 +207,12 @@ export class AynalyticsClient {
     this.identify(null);
     this.session = undefined;
     writeJson(this.sessionStore, 'session', undefined);
-    if (this.persistence === 'local') {
-      this.anonymousId = uuid();
-      writeJson(this.localStore, 'anonymousId', this.anonymousId);
-    }
+    if (this.persistence === 'local') this.anonymousId = this.renewAnonymousId();
   }
 
   /** Envoie la file. `beacon` = envoi garanti meme si la page se ferme (clic sortant, fermeture d'onglet). */
   flush(beacon = false): void {
+    this.firePendingScreen();
     if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
     while (this.queue.length) {
@@ -164,6 +236,20 @@ export class AynalyticsClient {
 
   private get sessionStore(): Storage | null {
     return this.persistence === 'memory' ? null : safeStorage('session');
+  }
+
+  private loadAnonymousId(): string {
+    const stored = readJson<StoredAnonymousId | string>(this.localStore, 'anonymousId');
+    if (stored && typeof stored === 'object' && Date.now() - stored.createdAt < ANONYMOUS_ID_TTL_MS) {
+      return stored.id;
+    }
+    return this.renewAnonymousId();
+  }
+
+  private renewAnonymousId(): string {
+    const value: StoredAnonymousId = { id: uuid(), createdAt: Date.now() };
+    writeJson(this.localStore, 'anonymousId', value);
+    return value.id;
   }
 
   private currentSession(now: number): SessionState {
@@ -191,6 +277,7 @@ export class AynalyticsClient {
       properties,
       ts: now,
       url: window.location.href,
+      title: document.title?.slice(0, 300) || undefined,
       referrer: session.referrer,
       utm: session.utm,
       sessionId: session.id,
@@ -198,6 +285,7 @@ export class AynalyticsClient {
       userId: this.userId,
       language: navigator.language,
       screenWidth: window.screen?.width,
+      context: collectContext(),
     });
     if (this.queue.length >= MAX_QUEUE) this.flush();
     else if (!this.timer) this.timer = setTimeout(() => this.flush(), FLUSH_DELAY_MS);
@@ -224,28 +312,83 @@ export class AynalyticsClient {
   }
 
   private onClick = (event: Event): void => {
-    const target = event.target instanceof Element ? event.target.closest('[data-ay-event]') : null;
-    const name = target?.getAttribute('data-ay-event');
-    if (!target || !name) return;
-    const properties: Properties = {};
-    for (const attr of Array.from(target.attributes)) {
-      if (attr.name.startsWith(PROP_ATTR_PREFIX)) {
-        properties[attr.name.slice(PROP_ATTR_PREFIX.length)] = coerceAttribute(attr.value);
+    if (!(event.target instanceof Element)) return;
+    const tagged = event.target.closest('[data-ay-event]');
+    const name = tagged?.getAttribute('data-ay-event');
+    if (tagged && name && this.options.autoClicks !== false) {
+      const properties = attributeProperties(tagged);
+      if (tagged instanceof HTMLAnchorElement && tagged.href && properties.href === undefined) {
+        properties.href = tagged.href;
       }
+      this.track(name, properties);
+      // Le clic peut quitter la page (lien d'achat) : envoi immediat via beacon.
+      this.flush(true);
+      return;
     }
-    if (target instanceof HTMLAnchorElement && target.href && properties.href === undefined) {
-      properties.href = target.href;
-    }
-    this.track(name, properties);
-    // Le clic peut quitter la page (lien d'achat) : envoi immediat via beacon.
-    this.flush(true);
+
+    const anchor = event.target.closest('a[href]');
+    if (anchor instanceof HTMLAnchorElement) this.onLinkClick(anchor);
   };
+
+  private onLinkClick(anchor: HTMLAnchorElement): void {
+    let url: URL;
+    try {
+      url = new URL(anchor.href, window.location.href);
+    } catch {
+      return;
+    }
+    const isWeb = url.protocol === 'http:' || url.protocol === 'https:';
+    const isContact = url.protocol === 'mailto:' || url.protocol === 'tel:';
+    const external = isContact || (isWeb && url.hostname !== window.location.hostname);
+    const link: LinkClick = {
+      url,
+      element: anchor,
+      text: (anchor.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 100),
+      section: sectionOf(anchor),
+      external,
+      properties: attributeProperties(anchor),
+    };
+
+    const custom = this.options.classifyLink?.(link);
+    if (custom === false) return;
+    if (custom) {
+      this.track(custom.name, { ...this.defaultLinkProperties(link), ...custom.properties });
+    } else if (external && this.options.outboundLinks !== false) {
+      this.track('outbound_click', this.defaultLinkProperties(link));
+    } else {
+      return;
+    }
+    this.flush(true);
+  }
+
+  private defaultLinkProperties(link: LinkClick): Properties {
+    const { url } = link;
+    const isContact = url.protocol === 'mailto:' || url.protocol === 'tel:';
+    const properties: Properties = {
+      // Pour mailto/tel : on garde le protocole et l'adresse, pas d'eventuels sujet/corps.
+      url: isContact ? `${url.protocol}${url.pathname}` : url.href,
+      host: isContact ? url.protocol.slice(0, -1) : url.hostname.replace(/^www\./, ''),
+    };
+    if (link.text) properties.text = link.text;
+    if (link.section) properties.section = link.section;
+    return { ...properties, ...link.properties };
+  }
+
+  private firePendingScreen(): void {
+    if (!this.pendingScreen) return;
+    clearTimeout(this.pendingScreen);
+    this.pendingScreen = undefined;
+    this.screen();
+  }
 
   private watchRoutes(): void {
     const onRoute = () => {
       if (window.location.pathname === this.lastScreenPath) return;
+      // Route quittee avant le delai (redirection, double navigation) : pas une vraie vue, on l'abandonne.
+      // L'URL a deja change, l'envoyer maintenant l'attribuerait a la nouvelle page.
+      clearTimeout(this.pendingScreen);
       this.lastScreenPath = window.location.pathname;
-      this.screen();
+      this.pendingScreen = setTimeout(() => this.firePendingScreen(), AUTO_SCREEN_DELAY_MS);
     };
     for (const method of ['pushState', 'replaceState'] as const) {
       const original = history[method];

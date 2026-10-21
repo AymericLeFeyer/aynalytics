@@ -31,6 +31,18 @@ function event(partial: Partial<TrackedEvent>): TrackedEvent {
     device: 'desktop',
     language: 'fr-FR',
     screenWidth: 1920,
+    title: null,
+    country: 'FR',
+    region: null,
+    city: null,
+    timezone: 'Europe/Paris',
+    screenHeight: 1080,
+    viewportWidth: null,
+    viewportHeight: null,
+    pixelRatio: null,
+    colorScheme: null,
+    connection: null,
+    context: {},
     ...partial,
   };
 }
@@ -93,5 +105,57 @@ describe('SqliteAnalyticsRepository', () => {
     expect(repo.listEvents(filter, { limit: 10, propKey: 'promo' })[0]?.properties).toMatchObject({
       promo: true,
     });
+  });
+});
+
+describe('donnees v2 (geo, contexte, visiteurs persistants)', () => {
+  it('compte un visiteur par identifiant anonyme sur plusieurs jours', () => {
+    const db = openDatabase(':memory:');
+    new SqliteEventRepository(db).insertMany([
+      // Meme navigateur (anonymousId) vu deux jours : hash journalier different, un seul visiteur.
+      event({ anonymousId: 'a1', visitorHash: 'jour1', ts: T0 }),
+      event({ anonymousId: 'a1', visitorHash: 'jour2', ts: T0 + DAY }),
+      // Sans identifiant persistant : retombe sur le hash journalier.
+      event({ visitorHash: 'h1', ts: T0 }),
+    ]);
+    expect(new SqliteAnalyticsRepository(db).overview(filter).visitors).toBe(2);
+  });
+
+  it('agrege par pays, resolution et fuseau, et restitue le contexte', () => {
+    const db = openDatabase(':memory:');
+    new SqliteEventRepository(db).insertMany([
+      event({ country: 'FR', city: 'Lyon', context: { cpuCores: 8, languages: ['fr-FR', 'en'] } }),
+      event({ country: 'BE', screenWidth: 390, screenHeight: 844 }),
+      event({ country: 'FR', screenWidth: null, screenHeight: null }),
+    ]);
+    const repo = new SqliteAnalyticsRepository(db);
+    expect(repo.top(filter, 'country', 10)).toEqual([
+      { value: 'FR', count: 2, visitors: 1 },
+      { value: 'BE', count: 1, visitors: 1 },
+    ]);
+    expect(repo.top(filter, 'screen', 10).map((r) => r.value)).toEqual(['(aucun)', '1920x1080', '390x844']);
+    const [stored] = repo.listEvents({ ...filter, name: 'purchase_click' }, { limit: 10 }).reverse();
+    expect(stored).toMatchObject({ city: 'Lyon', timezone: 'Europe/Paris', context: { cpuCores: 8 } });
+  });
+});
+
+describe('timeseries', () => {
+  it('range les evenements en cours de journee dans le bon bucket (fuseau compris)', () => {
+    const db = openDatabase(':memory:');
+    const HOUR = 3_600_000;
+    new SqliteEventRepository(db).insertMany([
+      event({ ts: T0 + 13 * HOUR + 1234 }),
+      event({ ts: T0 + DAY + 23 * HOUR + 59_000 }), // 23h59 UTC = lendemain 01h59 a Paris (UTC+2)
+    ]);
+    const repo = new SqliteAnalyticsRepository(db);
+    expect(repo.timeseries(filter, 'day', 0).map((p) => p.count)).toEqual([1, 1, 0]);
+    const paris = repo.timeseries({ ...filter, from: T0 - 2 * HOUR }, 'day', 120);
+    expect(paris.map((p) => p.count)).toEqual([1, 0, 1, 0]);
+    expect(
+      repo
+        .timeseries(filter, 'hour', 0)
+        .filter((p) => p.count)
+        .map((p) => p.bucket),
+    ).toEqual([T0 + 13 * HOUR, T0 + DAY + 23 * HOUR]);
   });
 });

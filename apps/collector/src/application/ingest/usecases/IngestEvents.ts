@@ -1,4 +1,4 @@
-import type { EventRepository, IncomingEvent, SaltRepository, Site } from '@aynalytics/core';
+import type { EventRepository, GeoLocator, IncomingEvent, SaltRepository, Site } from '@aynalytics/core';
 import { buildTrackedEvent, dayKey, isBot } from '@aynalytics/core';
 
 export interface IngestInput {
@@ -13,6 +13,7 @@ export class IngestEvents {
   constructor(
     private readonly events: EventRepository,
     private readonly salts: SaltRepository,
+    private readonly geo: GeoLocator | null = null,
     private readonly clock: () => number = Date.now,
   ) {}
 
@@ -21,6 +22,8 @@ export class IngestEvents {
     if (!input.serverSide && isBot(input.userAgent)) return 0;
     const receivedAt = this.clock();
     const salt = this.salts.getOrCreate(dayKey(receivedAt));
+    // Une seule resolution par lot : l'IP est la meme pour tous les evenements. L'IP n'est jamais stockee.
+    const geo = input.serverSide ? null : (this.geo?.locate(input.ip) ?? null);
     const tracked = input.events.map((event) =>
       buildTrackedEvent(event, {
         siteId: input.site.id,
@@ -29,6 +32,7 @@ export class IngestEvents {
         serverSide: input.serverSide,
         receivedAt,
         salt,
+        geo,
       }),
     );
     this.events.insertMany(tracked);

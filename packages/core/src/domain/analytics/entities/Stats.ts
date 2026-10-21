@@ -28,19 +28,31 @@ export interface TimeseriesPoint {
   visitors: number;
 }
 
-/** Dimensions groupables (whitelist : la colonne SQL est derivee de cette liste, jamais de l'entree brute). */
+/**
+ * Dimensions groupables -> expression SQL (alias `e`). Whitelist : l'expression vient
+ * exclusivement de cette table, jamais de l'entree utilisateur.
+ */
 export const DIMENSIONS = {
-  name: 'name',
-  path: 'path',
-  source: 'source',
-  referrer: 'referrer_host',
-  utm_source: 'utm_source',
-  utm_medium: 'utm_medium',
-  utm_campaign: 'utm_campaign',
-  browser: 'browser',
-  os: 'os',
-  device: 'device',
-  language: 'language',
+  name: 'e.name',
+  path: 'e.path',
+  title: 'e.title',
+  source: 'e.source',
+  referrer: 'e.referrer_host',
+  utm_source: 'e.utm_source',
+  utm_medium: 'e.utm_medium',
+  utm_campaign: 'e.utm_campaign',
+  browser: 'e.browser',
+  os: 'e.os',
+  device: 'e.device',
+  language: 'e.language',
+  country: 'e.country',
+  region: 'e.region',
+  city: 'e.city',
+  timezone: 'e.timezone',
+  screen:
+    "CASE WHEN e.screen_width IS NULL THEN NULL ELSE e.screen_width || 'x' || COALESCE(e.screen_height, '?') END",
+  color_scheme: 'e.color_scheme',
+  connection: 'e.connection',
 } as const;
 export type Dimension = keyof typeof DIMENSIONS;
 export const DIMENSION_KEYS = Object.keys(DIMENSIONS) as Dimension[];

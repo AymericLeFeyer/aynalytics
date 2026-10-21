@@ -139,3 +139,54 @@ describe('OPTIONS /v1/collect', () => {
     expect(ko.statusCode).toBe(403);
   });
 });
+
+describe('enrichissement geo et contexte', () => {
+  it('localise par IP sans stocker l IP, conserve le contexte navigateur', async () => {
+    await app.close();
+    const located: string[] = [];
+    app = await buildCollector({
+      db,
+      rateLimitPerMinute: 100,
+      trustProxy: false,
+      logger: false,
+      registryTtlMs: 0,
+      geo: {
+        locate: (ip) => {
+          located.push(ip);
+          return { country: 'FR', region: 'Bretagne', city: 'Rennes', latitude: 48.11, longitude: -1.68 };
+        },
+      },
+    });
+    const res = await collect(
+      { origin: 'https://boutique.fr' },
+      {
+        siteKey: 'ay_pk_test',
+        events: [
+          {
+            type: 'screen',
+            name: '/',
+            title: 'Accueil',
+            context: { timezone: 'Europe/Paris', colorScheme: 'dark', cpuCores: 8, inconnu: 'ignoré' },
+          },
+        ],
+      },
+    );
+    expect(res.statusCode).toBe(202);
+    expect(located).toHaveLength(1);
+    const row = db.prepare('SELECT * FROM events').get() as Record<string, unknown>;
+    expect(row).toMatchObject({
+      title: 'Accueil',
+      country: 'FR',
+      region: 'Bretagne',
+      city: 'Rennes',
+      timezone: 'Europe/Paris',
+      color_scheme: 'dark',
+    });
+    expect(JSON.parse(row.context as string)).toEqual({ cpuCores: 8, latitude: 48.11, longitude: -1.68 });
+    expect(JSON.stringify(row)).not.toContain(located[0]);
+
+    // Envoi serveur : l'IP est celle du backend, pas de localisation.
+    await collect({ authorization: `Bearer ${SECRET}`, 'content-type': 'application/json' });
+    expect(located).toHaveLength(1);
+  });
+});

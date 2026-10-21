@@ -35,6 +35,8 @@ services:
       TRUST_PROXY: ${TRUST_PROXY:-loopback,172.16.0.0/12,10.0.0.0/8}
       RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-240}
       RETENTION_DAYS: ${RETENTION_DAYS:-0}
+      # Geolocalisation IP (DB-IP Lite, telechargee dans le volume) : city | country | off
+      GEOIP: ${GEOIP:-city}
       LOG_LEVEL: ${LOG_LEVEL:-info}
 
   dashboard:

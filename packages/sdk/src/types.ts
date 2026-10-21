@@ -5,7 +5,8 @@ export type EventType = 'screen' | 'event';
 
 /**
  * - `session` (defaut) : identifiant de session en sessionStorage, rien de persistant entre visites.
- * - `local` : ajoute un identifiant anonyme persistant (localStorage) -> visiteurs recurrents. Peut necessiter un consentement.
+ * - `local` : ajoute un identifiant anonyme persistant (localStorage, renouvele apres 13 mois) -> visiteurs
+ *   uniques sur plusieurs jours. Peut necessiter une mention dans la politique de confidentialite.
  * - `memory` : aucun stockage navigateur.
  */
 export type Persistence = 'session' | 'local' | 'memory';
@@ -19,11 +20,54 @@ export interface AynalyticsOptions {
   autoScreens?: boolean;
   /** Ecoute les clics sur les elements `data-ay-event` (defaut : true). */
   autoClicks?: boolean;
+  /** Trace les clics sur les liens externes, mailto: et tel: en `outbound_click` (defaut : true). */
+  outboundLinks?: boolean;
+  /**
+   * Personnalise le suivi des clics sur liens (internes et externes, hors `data-ay-event`) :
+   * retourner un evenement pour le renommer/l'enrichir, `false` pour l'ignorer,
+   * `null`/`undefined` pour garder le comportement par defaut.
+   */
+  classifyLink?: LinkClassifier;
   persistence?: Persistence;
   /** Ne rien envoyer si le navigateur a Do Not Track / Global Privacy Control actif (defaut : false). */
   respectDoNotTrack?: boolean;
   /** Log des envois dans la console. */
   debug?: boolean;
+}
+
+export interface LinkClick {
+  url: URL;
+  element: HTMLAnchorElement;
+  /** Texte visible du lien (100 car. max). */
+  text: string;
+  /** `data-ay-section` le plus proche, sinon id d'une `<section id>`, sinon landmark (header, nav, footer...). */
+  section: string | undefined;
+  external: boolean;
+  /** Proprietes `data-ay-prop-*` portees par le lien. */
+  properties: Properties;
+}
+
+export type LinkClassifier = (
+  link: LinkClick,
+) => { name: string; properties?: Properties } | false | null | undefined;
+
+/** Donnees navigateur collectees sans permission. */
+export interface WireContext {
+  timezone?: string;
+  languages?: string[];
+  screenHeight?: number;
+  viewportWidth?: number;
+  viewportHeight?: number;
+  pixelRatio?: number;
+  colorScheme?: 'light' | 'dark';
+  reducedMotion?: boolean;
+  connection?: string;
+  saveData?: boolean;
+  deviceMemory?: number;
+  cpuCores?: number;
+  touchPoints?: number;
+  platform?: string;
+  mobile?: boolean;
 }
 
 export interface WireUtm {
@@ -48,6 +92,8 @@ export interface WireEvent {
   userId?: string;
   language?: string;
   screenWidth?: number;
+  title?: string;
+  context?: WireContext;
 }
 
 export interface CollectPayload {

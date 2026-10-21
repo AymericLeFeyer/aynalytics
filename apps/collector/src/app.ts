@@ -1,5 +1,5 @@
 import rateLimit from '@fastify/rate-limit';
-import type { Db } from '@aynalytics/core';
+import type { Db, GeoLocator } from '@aynalytics/core';
 import { SqliteEventRepository, SqliteSaltRepository, SqliteSiteRepository } from '@aynalytics/core';
 import Fastify from 'fastify';
 import type { FastifyInstance, FastifyServerOptions } from 'fastify';
@@ -17,6 +17,7 @@ export interface CollectorOptions {
   trustProxy: FastifyServerOptions['trustProxy'];
   logger: FastifyServerOptions['logger'];
   registryTtlMs?: number;
+  geo?: GeoLocator | null;
 }
 
 export async function buildCollector(options: CollectorOptions): Promise<FastifyInstance> {
@@ -30,6 +31,7 @@ export async function buildCollector(options: CollectorOptions): Promise<Fastify
   const ingest = new IngestEvents(
     new SqliteEventRepository(options.db),
     new SqliteSaltRepository(options.db),
+    options.geo ?? null,
   );
   const authorize = new AuthorizeCollect(registry);
 

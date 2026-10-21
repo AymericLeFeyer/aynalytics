@@ -22,4 +22,12 @@ export const DIMENSION_LABELS: Record<Dimension, string> = {
   os: 'Système',
   device: 'Appareil',
   language: 'Langue',
+  title: 'Titre',
+  country: 'Pays',
+  region: 'Région',
+  city: 'Ville',
+  timezone: 'Fuseau',
+  screen: 'Écran',
+  color_scheme: 'Thème',
+  connection: 'Réseau',
 };

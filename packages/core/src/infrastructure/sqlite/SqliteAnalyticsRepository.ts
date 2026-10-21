@@ -43,6 +43,18 @@ interface EventRow {
   device: string | null;
   language: string | null;
   screen_width: number | null;
+  title: string | null;
+  country: string | null;
+  region: string | null;
+  city: string | null;
+  timezone: string | null;
+  screen_height: number | null;
+  viewport_width: number | null;
+  viewport_height: number | null;
+  pixel_ratio: number | null;
+  color_scheme: string | null;
+  connection: string | null;
+  context: string;
 }
 
 const toStoredEvent = (r: EventRow): StoredEvent => ({
@@ -74,6 +86,18 @@ const toStoredEvent = (r: EventRow): StoredEvent => ({
   device: r.device,
   language: r.language,
   screenWidth: r.screen_width,
+  title: r.title,
+  country: r.country,
+  region: r.region,
+  city: r.city,
+  timezone: r.timezone,
+  screenHeight: r.screen_height,
+  viewportWidth: r.viewport_width,
+  viewportHeight: r.viewport_height,
+  pixelRatio: r.pixel_ratio,
+  colorScheme: r.color_scheme,
+  connection: r.connection,
+  context: JSON.parse(r.context) as Record<string, JsonValue>,
 });
 
 /** Construit le WHERE commun. Toutes les valeurs passent en parametres nommes (aucune concatenation d'entree). */
@@ -97,6 +121,12 @@ function buildWhere(filter: StatsFilter): { sql: string; params: Params } {
   return { sql: clauses.join(' AND '), params };
 }
 
+/**
+ * Visiteur unique : identifiant anonyme persistant du SDK (persistence 'local') s'il existe,
+ * sinon hash journalier IP+UA.
+ */
+const VISITOR_KEY = 'COALESCE(e.anonymous_id, e.visitor_hash)';
+
 const JSON_VALUE_AS_TEXT = `CASE je.type
   WHEN 'true' THEN 'true'
   WHEN 'false' THEN 'false'
@@ -113,7 +143,7 @@ export class SqliteAnalyticsRepository implements AnalyticsRepository {
         `SELECT COUNT(*) AS total,
                 COALESCE(SUM(e.type = 'screen'), 0) AS screens,
                 COALESCE(SUM(e.type = 'event'), 0) AS events,
-                COUNT(DISTINCT e.visitor_hash) AS visitors,
+                COUNT(DISTINCT ${VISITOR_KEY}) AS visitors,
                 COUNT(DISTINCT e.session_id) AS sessions
          FROM events e WHERE ${sql}`,
       )
@@ -122,14 +152,16 @@ export class SqliteAnalyticsRepository implements AnalyticsRepository {
   }
 
   timeseries(filter: StatsFilter, interval: Interval, tzOffsetMinutes: number): TimeseriesPoint[] {
+    // better-sqlite3 lie les nombres JS en REAL : sans CAST, la division ne tronque pas et aucun
+    // evenement ne tombe sur une borne de bucket.
     const size = INTERVAL_MS[interval];
     const offset = tzOffsetMinutes * 60_000;
     const { sql, params } = buildWhere(filter);
     const rows = this.db
       .prepare(
-        `SELECT ((e.ts + @offset) / @size) * @size - @offset AS bucket,
+        `SELECT CAST((e.ts + @offset) / @size AS INTEGER) * @size - @offset AS bucket,
                 COUNT(*) AS count,
-                COUNT(DISTINCT e.visitor_hash) AS visitors
+                COUNT(DISTINCT ${VISITOR_KEY}) AS visitors
          FROM events e WHERE ${sql}
          GROUP BY bucket ORDER BY bucket`,
       )
@@ -144,13 +176,13 @@ export class SqliteAnalyticsRepository implements AnalyticsRepository {
   }
 
   top(filter: StatsFilter, dimension: Dimension, limit: number): TopRow[] {
-    const column = DIMENSIONS[dimension];
+    const expression = DIMENSIONS[dimension];
     const { sql, params } = buildWhere(filter);
     return this.db
       .prepare(
-        `SELECT COALESCE(e.${column}, '(aucun)') AS value,
+        `SELECT COALESCE(${expression}, '(aucun)') AS value,
                 COUNT(*) AS count,
-                COUNT(DISTINCT e.visitor_hash) AS visitors
+                COUNT(DISTINCT ${VISITOR_KEY}) AS visitors
          FROM events e WHERE ${sql}
          GROUP BY value ORDER BY count DESC, value ASC LIMIT @limit`,
       )
@@ -175,7 +207,7 @@ export class SqliteAnalyticsRepository implements AnalyticsRepository {
       .prepare(
         `SELECT ${JSON_VALUE_AS_TEXT} AS value,
                 COUNT(*) AS count,
-                COUNT(DISTINCT e.visitor_hash) AS visitors
+                COUNT(DISTINCT ${VISITOR_KEY}) AS visitors
          FROM events e, json_each(e.properties) je
          WHERE ${sql} AND je.key = @key
          GROUP BY value ORDER BY count DESC, value ASC LIMIT @limit`,

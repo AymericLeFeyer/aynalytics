@@ -4,9 +4,9 @@ import type { Overview, OverviewComparison } from '../../domain/analytics/entiti
 import { formatInt, variation } from '../../shared/format';
 
 const KPIS: { key: keyof Overview; label: string }[] = [
-  { key: 'visitors', label: 'Visiteurs' },
-  { key: 'sessions', label: 'Sessions' },
-  { key: 'screens', label: 'Écrans vus' },
+  { key: 'visitors', label: 'Visiteurs uniques' },
+  { key: 'sessions', label: 'Visites' },
+  { key: 'screens', label: 'Pages vues' },
   { key: 'events', label: 'Événements' },
 ];
 

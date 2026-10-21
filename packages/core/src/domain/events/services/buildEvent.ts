@@ -1,4 +1,4 @@
-import type { TrackedEvent } from '../entities/TrackedEvent';
+import type { EventProperties, GeoLocation, TrackedEvent } from '../entities/TrackedEvent';
 import { computeVisitorHash, mergeUtm, parseUserAgent, resolveSource, sanitizeUrl } from './enrichment';
 import type { IncomingEvent } from './payloadSchema';
 
@@ -13,6 +13,8 @@ export interface IngestContext {
   serverSide: boolean;
   receivedAt: number;
   salt: string;
+  /** Geolocalisation IP (null : base absente, IP privee ou envoi serveur). */
+  geo?: GeoLocation | null;
 }
 
 /** Accepte l'horodatage client s'il est plausible (24h en arriere en navigateur, 7j cote serveur). */
@@ -31,6 +33,22 @@ export function buildTrackedEvent(input: IncomingEvent, ctx: IngestContext): Tra
   const identity = ctx.serverSide
     ? (input.userId ?? input.anonymousId ?? input.sessionId ?? 'server')
     : `${ctx.ip}|${ctx.userAgent}`;
+  const {
+    timezone,
+    screenHeight,
+    viewportWidth,
+    viewportHeight,
+    pixelRatio,
+    colorScheme,
+    connection,
+    ...extra
+  } = input.context ?? {};
+  const geo = ctx.serverSide ? null : (ctx.geo ?? null);
+  const context: EventProperties = { ...extra };
+  if (geo?.latitude != null && geo.longitude != null) {
+    context.latitude = geo.latitude;
+    context.longitude = geo.longitude;
+  }
   const source =
     ctx.serverSide && !utm.source && !referrer.host
       ? 'server'
@@ -58,5 +76,17 @@ export function buildTrackedEvent(input: IncomingEvent, ctx: IngestContext): Tra
     device: ua.device,
     language: input.language ?? null,
     screenWidth: input.screenWidth ?? null,
+    title: input.title?.trim() || null,
+    country: geo?.country ?? null,
+    region: geo?.region ?? null,
+    city: geo?.city ?? null,
+    timezone: timezone ?? null,
+    screenHeight: screenHeight ?? null,
+    viewportWidth: viewportWidth ?? null,
+    viewportHeight: viewportHeight ?? null,
+    pixelRatio: pixelRatio ?? null,
+    colorScheme: colorScheme ?? null,
+    connection: connection ?? null,
+    context,
   };
 }
