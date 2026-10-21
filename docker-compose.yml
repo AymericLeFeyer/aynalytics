@@ -1,7 +1,10 @@
 # Aynalytics : deux conteneurs, un dossier data commun (base SQLite partagee).
+# Publication via Pangolin : les conteneurs rejoignent le reseau Docker de Pangolin,
+# Traefik (Pangolin) les joint par leur nom. Aucun port n'est publie sur Internet.
 # 1. cp .env.example .env et remplir les valeurs
 # 2. mkdir -p data && sudo chown 1000:1000 data
-# 3. docker compose up -d --build   (ou sans --build avec les images GHCR)
+# 3. docker compose up -d   (images GHCR, ou --build pour construire localement)
+# 4. Pangolin : ressource publique -> aynalytics-collector:8080, ressource protegee (SSO) -> aynalytics-dashboard:8081
 name: aynalytics
 
 x-hardening: &hardening
@@ -15,25 +18,27 @@ x-hardening: &hardening
     - no-new-privileges:true
   volumes:
     - ${DATA_PATH:-./data}:/data
+  networks:
+    - proxy
 
 services:
   collector:
     <<: *hardening
+    container_name: aynalytics-collector
     image: ghcr.io/aymericlefeyer/aynalytics-collector:${TAG:-latest}
     build:
       context: .
       target: collector
     environment:
-      TRUST_PROXY: ${TRUST_PROXY:-loopback,172.16.0.0/12}
+      # Reseaux Docker prives : couvre Traefik/Gerbil de Pangolin pour lire X-Forwarded-For.
+      TRUST_PROXY: ${TRUST_PROXY:-loopback,172.16.0.0/12,10.0.0.0/8}
       RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-240}
       RETENTION_DAYS: ${RETENTION_DAYS:-0}
       LOG_LEVEL: ${LOG_LEVEL:-info}
-    # Expose en local uniquement : le reverse proxy HTTPS (Caddy, Nginx, Traefik) publie le service.
-    ports:
-      - '${COLLECTOR_BIND:-127.0.0.1}:${COLLECTOR_PORT:-8080}:8080'
 
   dashboard:
     <<: *hardening
+    container_name: aynalytics-dashboard
     image: ghcr.io/aymericlefeyer/aynalytics-dashboard:${TAG:-latest}
     build:
       context: .
@@ -43,6 +48,8 @@ services:
       BASIC_AUTH_PASSWORD: ${BASIC_AUTH_PASSWORD:?BASIC_AUTH_PASSWORD est requis}
       COLLECTOR_PUBLIC_URL: ${COLLECTOR_PUBLIC_URL:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
-    # Bind sur l'IP de l'interface VPN (ex : WireGuard 10.8.0.1) : jamais sur 0.0.0.0.
-    ports:
-      - '${DASHBOARD_BIND:?DASHBOARD_BIND est requis (IP VPN du serveur)}:${DASHBOARD_PORT:-8081}:8081'
+
+networks:
+  proxy:
+    name: ${PROXY_NETWORK:-pangolin}
+    external: true

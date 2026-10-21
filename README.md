@@ -4,34 +4,34 @@ Analytics self-hosted, respectueux de la vie privée :
 
 - **SDK** à intégrer sur tes sites : écrans (`screen`) et événements (`track`) avec des propriétés libres.
 - **Collector** : serveur public qui reçoit les données, et uniquement depuis les sites autorisés.
-- **Dashboard** : interface interne (VPN), avec vue d'ensemble, explorateur de propriétés et gestion des sites.
+- **Dashboard** : interface interne (protégée par Pangolin), avec vue d'ensemble, explorateur de propriétés et gestion des sites.
 
-Les deux images Docker partagent un dossier `data/` qui contient une base SQLite.
+Les deux images Docker partagent un dossier `data/` qui contient une base SQLite. Elles sont publiées par
+[Pangolin](https://github.com/fosrl/pangolin) : aucun port n'est ouvert sur l'hôte.
 
 ```
- sites autorisés ──HTTPS──▶ reverse proxy ──▶ collector :8080 ─┐
-                                                               ├─▶ ./data/aynalytics.db
- toi (VPN) ───────────────────────────────▶ dashboard :8081 ───┘
+ sites autorisés ──HTTPS──▶ Pangolin (ressource publique) ──▶ aynalytics-collector:8080 ─┐
+                                                                                         ├─▶ ./data/aynalytics.db
+ toi ──HTTPS──▶ Pangolin (ressource protégée SSO) ──▶ aynalytics-dashboard:8081 ─────────┘
 ```
 
 ## Déploiement sur le VPS
 
 ```bash
 git clone <repo> aynalytics && cd aynalytics
-cp .env.example .env            # BASIC_AUTH_PASSWORD, DASHBOARD_BIND (IP VPN), COLLECTOR_PUBLIC_URL
+cp .env.example .env            # BASIC_AUTH_PASSWORD, COLLECTOR_PUBLIC_URL, PROXY_NETWORK
 mkdir -p data && sudo chown 1000:1000 data
-docker compose up -d --build    # ou `docker compose pull && docker compose up -d` avec les images GHCR
+docker compose pull && docker compose up -d
 ```
 
-Reverse proxy HTTPS pour le collector, par exemple avec Caddy :
+`PROXY_NETWORK` est le réseau Docker de Pangolin (`docker network ls`, `pangolin` par défaut). Dans Pangolin, sur le site **local** :
 
-```
-analytics.mondomaine.fr {
-    reverse_proxy 127.0.0.1:8080
-}
-```
+| Ressource | Sous-domaine              | Cible                              | Authentification                                     |
+| --------- | ------------------------- | ---------------------------------- | ---------------------------------------------------- |
+| Collector | `analytics.mondomaine.fr` | `http://aynalytics-collector:8080` | **désactivée** (les sites doivent pouvoir l'appeler) |
+| Dashboard | `stats.mondomaine.fr`     | `http://aynalytics-dashboard:8081` | **activée** (SSO / utilisateurs autorisés)           |
 
-Le dashboard n'écoute que sur l'IP VPN (`DASHBOARD_BIND`, par exemple `10.8.0.1` pour WireGuard) : `http://10.8.0.1:8081`.
+`TRUST_PROXY` doit couvrir le sous-réseau du réseau Pangolin (`docker network inspect pangolin`). Les valeurs par défaut couvrent `172.16.0.0/12` et `10.0.0.0/8`.
 
 ## Intégration
 

@@ -1,7 +1,7 @@
 # aynalytics — CLAUDE.md
 
-> Analytics self-hosted : SDK de tracking (screens + events a proprietes libres) -> collector public -> dashboard interne (VPN).
-> **Dernière mise à jour : 2026-10-21** (v0.1 : creation du projet)
+> Analytics self-hosted : SDK de tracking (screens + events a proprietes libres) -> collector public -> dashboard interne (Pangolin SSO).
+> **Dernière mise à jour : 2026-10-21** (deploiement via le reseau Docker de Pangolin, plus de port publie)
 
 ## Stack
 
@@ -138,7 +138,7 @@ Hooks (application) :
 ## Securite (resume)
 
 - Collector : site actif + (Origin dans `allowedOrigins` **ou** Bearer cle secrete). Pas d'Origin et pas de secret = 403. CORS reflete uniquement les origines connues. Body <= 64 Ko, zod strict sur tailles, parseur JSON securise (rejette `__proto__`), rate limit IP, filtre bots, headers durcis.
-- Dashboard : bind sur l'IP VPN (`DASHBOARD_BIND` obligatoire dans compose) + basic auth timing-safe + anti-CSRF (header custom + `Sec-Fetch-Site`) + CSP stricte (sauf `style-src 'unsafe-inline'` pour antd) + rate limit.
+- Dashboard : aucun port publie, expose uniquement via une ressource Pangolin protegee (SSO) sur le reseau Docker `PROXY_NETWORK` + basic auth timing-safe + anti-CSRF (header custom + `Sec-Fetch-Site`) + CSP stricte (sauf `style-src 'unsafe-inline'` pour antd) + rate limit.
 - Conteneurs : non-root (uid 1000), `read_only`, `cap_drop: ALL`, `no-new-privileges`.
 
 ## Patterns
@@ -153,7 +153,8 @@ Hooks (application) :
 
 - **Cache des sites dans le collector (10 s)** : un site cree/desactive/une cle regeneree n'est effectif qu'apres ce delai.
 - **SQLite partage entre 2 conteneurs** : le dossier `data` doit etre sur un FS local (pas NFS/SMB : verrous WAL) et appartenir a l'uid 1000 (`chown 1000:1000 data`).
-- **TRUST_PROXY** : ne jamais mettre `true` si le port du collector est joignable directement (X-Forwarded-For spoofable -> contournement du rate limit). Utiliser la liste CIDR du reverse proxy (`loopback,172.16.0.0/12` par defaut).
+- **TRUST_PROXY** : ne jamais mettre `true` si le port du collector est joignable directement (X-Forwarded-For spoofable -> contournement du rate limit). Utiliser la liste CIDR du reverse proxy (`loopback,172.16.0.0/12,10.0.0.0/8` par defaut, doit couvrir le sous-reseau du reseau Pangolin).
+- **Deploiement Pangolin** : les 2 conteneurs rejoignent le reseau externe `PROXY_NETWORK` (defaut `pangolin`, doit exister avant `docker compose up`). Pangolin cible `aynalytics-collector:8080` (ressource publique, auth desactivee) et `aynalytics-dashboard:8081` (auth SSO). Les `container_name` sont fixes : ne pas les renommer sans mettre a jour les ressources Pangolin.
 - La cle publique est visible dans le HTML : la protection navigateur repose sur l'Origin, qui ne protege que contre les navigateurs, pas contre un script qui forge l'en-tete. Le rate limit + les bornes de payload limitent l'abus ; les donnees critiques (paiements) doivent passer par le SDK serveur avec cle secrete.
 - `visitorHash` change chaque jour (sel tournant) : les "visiteurs" sont uniques **par jour** ; sur une periode longue, c'est une somme approx. Pour du recurrent, `persistence: 'local'` (anonymousId) — peut necessiter un consentement.
 - Vite 8 est impose par vitest 4 (hoisting) : garder la meme majeure de Vite dans `dashboard-web`, sinon conflit de types du plugin React.
