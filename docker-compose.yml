@@ -1,0 +1,48 @@
+# Aynalytics : deux conteneurs, un dossier data commun (base SQLite partagee).
+# 1. cp .env.example .env et remplir les valeurs
+# 2. mkdir -p data && sudo chown 1000:1000 data
+# 3. docker compose up -d --build   (ou sans --build avec les images GHCR)
+name: aynalytics
+
+x-hardening: &hardening
+  restart: unless-stopped
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  volumes:
+    - ${DATA_PATH:-./data}:/data
+
+services:
+  collector:
+    <<: *hardening
+    image: ghcr.io/aymericlefeyer/aynalytics-collector:${TAG:-latest}
+    build:
+      context: .
+      target: collector
+    environment:
+      TRUST_PROXY: ${TRUST_PROXY:-loopback,172.16.0.0/12}
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-240}
+      RETENTION_DAYS: ${RETENTION_DAYS:-0}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    # Expose en local uniquement : le reverse proxy HTTPS (Caddy, Nginx, Traefik) publie le service.
+    ports:
+      - '${COLLECTOR_BIND:-127.0.0.1}:${COLLECTOR_PORT:-8080}:8080'
+
+  dashboard:
+    <<: *hardening
+    image: ghcr.io/aymericlefeyer/aynalytics-dashboard:${TAG:-latest}
+    build:
+      context: .
+      target: dashboard
+    environment:
+      BASIC_AUTH_USER: ${BASIC_AUTH_USER:?BASIC_AUTH_USER est requis}
+      BASIC_AUTH_PASSWORD: ${BASIC_AUTH_PASSWORD:?BASIC_AUTH_PASSWORD est requis}
+      COLLECTOR_PUBLIC_URL: ${COLLECTOR_PUBLIC_URL:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    # Bind sur l'IP de l'interface VPN (ex : WireGuard 10.8.0.1) : jamais sur 0.0.0.0.
+    ports:
+      - '${DASHBOARD_BIND:?DASHBOARD_BIND est requis (IP VPN du serveur)}:${DASHBOARD_PORT:-8081}:8081'
