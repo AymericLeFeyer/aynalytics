@@ -6,7 +6,9 @@ import type { FastifyInstance, FastifyServerOptions } from 'fastify';
 import { GetOverview } from './application/analytics/usecases/GetOverview';
 import { GetPropertyBreakdown } from './application/analytics/usecases/GetPropertyBreakdown';
 import { GetPropertyKeys } from './application/analytics/usecases/GetPropertyKeys';
+import { GetSitesBreakdown } from './application/analytics/usecases/GetSitesBreakdown';
 import { GetTimeseries } from './application/analytics/usecases/GetTimeseries';
+import { GetTimeseriesBySite } from './application/analytics/usecases/GetTimeseriesBySite';
 import { GetTopValues } from './application/analytics/usecases/GetTopValues';
 import { ListEvents } from './application/analytics/usecases/ListEvents';
 import { CreateSite } from './application/sites/usecases/CreateSite';
@@ -50,6 +52,8 @@ export async function buildDashboard(options: DashboardOptions): Promise<Fastify
   analyticsRoutes(app, {
     getOverview: new GetOverview(analytics),
     getTimeseries: new GetTimeseries(analytics),
+    getSitesBreakdown: new GetSitesBreakdown(analytics),
+    getTimeseriesBySite: new GetTimeseriesBySite(analytics),
     getTopValues: new GetTopValues(analytics),
     getPropertyKeys: new GetPropertyKeys(analytics),
     getPropertyBreakdown: new GetPropertyBreakdown(analytics),

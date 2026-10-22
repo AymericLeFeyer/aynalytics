@@ -3,11 +3,13 @@ import { App as AntApp, ConfigProvider, theme } from 'antd';
 import frFR from 'antd/locale/fr_FR';
 import dayjs from 'dayjs';
 import 'dayjs/locale/fr';
-import { StrictMode, useEffect, useState } from 'react';
+import { StrictMode, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { App } from './App';
+import './index.css';
 import { HttpError } from './infrastructure/http/httpClient';
+import { ThemeModeProvider, useThemeMode } from './presentation/hooks/useThemeMode';
 
 dayjs.locale('fr');
 
@@ -21,23 +23,20 @@ const queryClient = new QueryClient({
   },
 });
 
-/** Suit le theme systeme (clair/sombre). */
-function usePrefersDark(): boolean {
-  const query = '(prefers-color-scheme: dark)';
-  const [dark, setDark] = useState(() => window.matchMedia(query).matches);
+/** Fond du body aligne sur le theme (visible lors du rebond de defilement). */
+function BodyBackground() {
+  const { token } = theme.useToken();
   useEffect(() => {
-    const media = window.matchMedia(query);
-    const onChange = (e: MediaQueryListEvent) => setDark(e.matches);
-    media.addEventListener('change', onChange);
-    return () => media.removeEventListener('change', onChange);
-  }, []);
-  return dark;
+    document.body.style.background = token.colorBgLayout;
+  }, [token.colorBgLayout]);
+  return null;
 }
 
 function Root() {
-  const dark = usePrefersDark();
+  const { dark } = useThemeMode();
   return (
     <ConfigProvider locale={frFR} theme={{ algorithm: dark ? theme.darkAlgorithm : theme.defaultAlgorithm }}>
+      <BodyBackground />
       <AntApp>
         <QueryClientProvider client={queryClient}>
           <BrowserRouter>
@@ -51,6 +50,8 @@ function Root() {
 
 createRoot(document.getElementById('root') as HTMLElement).render(
   <StrictMode>
-    <Root />
+    <ThemeModeProvider>
+      <Root />
+    </ThemeModeProvider>
   </StrictMode>,
 );

@@ -11,7 +11,9 @@ import { EventsTable } from '../components/EventsTable';
 import { KpiCards } from '../components/KpiCards';
 import { PropertyExplorer } from '../components/PropertyExplorer';
 import { TimeseriesChart } from '../components/TimeseriesChart';
+import { TopTable } from '../components/TopTable';
 import { useFilters } from '../hooks/useFilters';
+import { useSiteNames } from '../hooks/useSiteNames';
 
 /** Etat de l'explorateur dans l'URL : partageable et compatible bouton retour. */
 function useExplorerParams() {
@@ -35,7 +37,8 @@ function useExplorerParams() {
 }
 
 export function EventsPage() {
-  const { filter: base, interval } = useFilters();
+  const { filter: base, interval, setSiteId } = useFilters();
+  const siteName = useSiteNames();
   const { type, name, key, value, set } = useExplorerParams();
 
   const typeFilter = useMemo<StatsFilter>(() => ({ ...base, type }), [base, type]);
@@ -43,6 +46,7 @@ export function EventsPage() {
   const names = useTopValues(typeFilter, 'name', 100);
   const overview = useOverview(filter);
   const series = useTimeseries(filter, interval);
+  const bySite = useTopValues(filter, 'site', 50);
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
@@ -94,6 +98,18 @@ export function EventsPage() {
           />
         </Col>
       </Row>
+
+      {/* Tous les sites : quel site genere cet evenement ; un clic filtre sur ce site. */}
+      {!base.siteId && (
+        <TopTable
+          title="Par site"
+          valueLabel="Site"
+          rows={bySite.data}
+          loading={bySite.isFetching}
+          formatValue={siteName}
+          onSelect={setSiteId}
+        />
+      )}
 
       <EventsTable
         filter={filter}

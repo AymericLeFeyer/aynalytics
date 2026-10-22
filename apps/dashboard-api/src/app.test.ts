@@ -1,5 +1,11 @@
-import type { Db } from '@aynalytics/core';
-import { openDatabase, verifySecret, SqliteSiteRepository } from '@aynalytics/core';
+import type { Db, TrackedEvent } from '@aynalytics/core';
+import {
+  emptyUtm,
+  openDatabase,
+  verifySecret,
+  SqliteEventRepository,
+  SqliteSiteRepository,
+} from '@aynalytics/core';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildDashboard } from './app';
@@ -91,6 +97,42 @@ describe('gestion des sites', () => {
   });
 });
 
+const emptyEvent = (): TrackedEvent => ({
+  siteId: 's',
+  type: 'event',
+  name: 'e',
+  properties: {},
+  ts: 0,
+  receivedAt: 0,
+  visitorHash: 'v',
+  sessionId: null,
+  anonymousId: null,
+  userId: null,
+  url: null,
+  path: null,
+  referrer: null,
+  referrerHost: null,
+  source: 'direct',
+  utm: emptyUtm(),
+  browser: null,
+  os: null,
+  device: null,
+  language: null,
+  screenWidth: null,
+  title: null,
+  country: null,
+  region: null,
+  city: null,
+  timezone: null,
+  screenHeight: null,
+  viewportWidth: null,
+  viewportHeight: null,
+  pixelRatio: null,
+  colorScheme: null,
+  connection: null,
+  context: {},
+});
+
 describe('statistiques', () => {
   it('valide les parametres de requete', async () => {
     expect((await api('GET', '/api/stats/overview?from=10&to=5')).statusCode).toBe(400);
@@ -98,5 +140,37 @@ describe('statistiques', () => {
     const ok = await api('GET', '/api/stats/overview?from=0&to=1000');
     expect(ok.statusCode).toBe(200);
     expect(ok.json().current.total).toBe(0);
+  });
+
+  it('repartit les statistiques par site, sans tenir compte du site filtre', async () => {
+    const events = new SqliteEventRepository(db);
+    const base = { type: 'screen' as const, name: '/', properties: {}, receivedAt: 0, sessionId: null };
+    events.insertMany(
+      [
+        { siteId: 'a', ts: 100, visitorHash: 'v1' },
+        { siteId: 'a', ts: 200, visitorHash: 'v2' },
+        { siteId: 'b', ts: 300, visitorHash: 'v3' },
+        { siteId: 'b', ts: -500, visitorHash: 'v3' },
+      ].map((e) => ({ ...emptyEvent(), ...base, ...e })),
+    );
+
+    const sites = await api('GET', '/api/stats/sites?from=0&to=1000&siteId=a');
+    expect(sites.statusCode).toBe(200);
+    expect(
+      sites.json().current.map((s: { siteId: string; visitors: number }) => [s.siteId, s.visitors]),
+    ).toEqual([
+      ['a', 2],
+      ['b', 1],
+    ]);
+    expect(sites.json().previous).toEqual([expect.objectContaining({ siteId: 'b', screens: 1 })]);
+
+    const series = await api('GET', '/api/stats/timeseries/sites?from=0&to=7200000&interval=hour');
+    expect(series.statusCode).toBe(200);
+    expect(
+      series.json().map((s: { siteId: string; points: unknown[] }) => [s.siteId, s.points.length]),
+    ).toEqual([
+      ['a', 2],
+      ['b', 2],
+    ]);
   });
 });

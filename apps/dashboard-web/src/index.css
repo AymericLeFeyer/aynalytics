@@ -1,0 +1,6 @@
+/* antd ne remet pas a zero la marge par defaut du navigateur (8 px autour de toute l'app). */
+html,
+body {
+  margin: 0;
+  padding: 0;
+}

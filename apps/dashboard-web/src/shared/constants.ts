@@ -11,6 +11,7 @@ export const RANGE_PRESETS: { value: RangePreset; label: string }[] = [
 ];
 
 export const DIMENSION_LABELS: Record<Dimension, string> = {
+  site: 'Site',
   name: 'Nom',
   path: 'Page',
   source: 'Source',

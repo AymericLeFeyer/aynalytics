@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { useEventStream } from '../../application/analytics/usecases/analyticsUseCases';
 import type { EventQuery, StatsFilter, TrackedEvent } from '../../domain/analytics/entities/Stats';
 import { formatCountry, formatDateTime, formatDimensionValue } from '../../shared/format';
+import { useSiteNames } from '../hooks/useSiteNames';
 
 const compact = (properties: TrackedEvent['properties']): string => {
   const text = JSON.stringify(properties);
@@ -65,6 +66,7 @@ interface Props {
 export function EventsTable({ filter, query, title = 'Flux brut' }: Props) {
   const stream = useEventStream(filter, query);
   const rows = stream.data?.pages.flatMap((page) => page.items) ?? [];
+  const siteName = useSiteNames();
 
   return (
     <Card size="small" title={title} styles={{ body: { padding: 0 } }}>
@@ -79,6 +81,10 @@ export function EventsTable({ filter, query, title = 'Flux brut' }: Props) {
         expandable={{ expandedRowRender: (event) => <EventDetails event={event} /> }}
         columns={[
           { title: 'Date', dataIndex: 'ts', width: 170, render: formatDateTime },
+          // Colonne Site seulement en vue « Tous les sites ».
+          ...(filter.siteId
+            ? []
+            : [{ title: 'Site', dataIndex: 'siteId', width: 140, ellipsis: true, render: siteName }]),
           {
             title: 'Type',
             dataIndex: 'type',

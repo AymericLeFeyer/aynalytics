@@ -5,6 +5,8 @@ import type {
   Overview,
   PropertyBreakdown,
   PropertyKeyRow,
+  SiteOverview,
+  SiteTimeseries,
   StatsFilter,
   TimeseriesPoint,
   TopRow,
@@ -127,6 +129,14 @@ function buildWhere(filter: StatsFilter): { sql: string; params: Params } {
  */
 const VISITOR_KEY = 'COALESCE(e.anonymous_id, e.visitor_hash)';
 
+/** Buckets de `size` ms alignes sur le fuseau du lecteur, de `from` a `to` (exclu). */
+function buckets(filter: StatsFilter, size: number, offset: number): number[] {
+  const result: number[] = [];
+  const start = Math.floor((filter.from + offset) / size) * size - offset;
+  for (let bucket = start; bucket < filter.to; bucket += size) result.push(bucket);
+  return result;
+}
+
 const JSON_VALUE_AS_TEXT = `CASE je.type
   WHEN 'true' THEN 'true'
   WHEN 'false' THEN 'false'
@@ -167,12 +177,54 @@ export class SqliteAnalyticsRepository implements AnalyticsRepository {
       )
       .all({ ...params, offset, size }) as TimeseriesPoint[];
     const byBucket = new Map(rows.map((r) => [r.bucket, r]));
-    const points: TimeseriesPoint[] = [];
-    const start = Math.floor((filter.from + offset) / size) * size - offset;
-    for (let bucket = start; bucket < filter.to; bucket += size) {
-      points.push(byBucket.get(bucket) ?? { bucket, count: 0, visitors: 0 });
+    return buckets(filter, size, offset).map(
+      (bucket) => byBucket.get(bucket) ?? { bucket, count: 0, visitors: 0 },
+    );
+  }
+
+  overviewBySite(filter: StatsFilter): SiteOverview[] {
+    const { sql, params } = buildWhere(filter);
+    return this.db
+      .prepare(
+        `SELECT e.site_id AS siteId,
+                COUNT(*) AS total,
+                COALESCE(SUM(e.type = 'screen'), 0) AS screens,
+                COALESCE(SUM(e.type = 'event'), 0) AS events,
+                COUNT(DISTINCT ${VISITOR_KEY}) AS visitors,
+                COUNT(DISTINCT e.session_id) AS sessions
+         FROM events e WHERE ${sql}
+         GROUP BY e.site_id ORDER BY visitors DESC, total DESC, siteId ASC`,
+      )
+      .all(params) as SiteOverview[];
+  }
+
+  timeseriesBySite(filter: StatsFilter, interval: Interval, tzOffsetMinutes: number): SiteTimeseries[] {
+    const size = INTERVAL_MS[interval];
+    const offset = tzOffsetMinutes * 60_000;
+    const { sql, params } = buildWhere(filter);
+    const rows = this.db
+      .prepare(
+        `SELECT e.site_id AS siteId,
+                CAST((e.ts + @offset) / @size AS INTEGER) * @size - @offset AS bucket,
+                COUNT(*) AS count,
+                COUNT(DISTINCT ${VISITOR_KEY}) AS visitors
+         FROM events e WHERE ${sql}
+         GROUP BY e.site_id, bucket`,
+      )
+      .all({ ...params, offset, size }) as (TimeseriesPoint & { siteId: string })[];
+    const bySite = new Map<string, Map<number, TimeseriesPoint>>();
+    for (const { siteId, ...point } of rows) {
+      const points = bySite.get(siteId) ?? new Map<number, TimeseriesPoint>();
+      points.set(point.bucket, point);
+      bySite.set(siteId, points);
     }
-    return points;
+    const all = buckets(filter, size, offset);
+    return [...bySite.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([siteId, points]) => ({
+        siteId,
+        points: all.map((bucket) => points.get(bucket) ?? { bucket, count: 0, visitors: 0 }),
+      }));
   }
 
   top(filter: StatsFilter, dimension: Dimension, limit: number): TopRow[] {

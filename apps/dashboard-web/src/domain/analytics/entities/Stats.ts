@@ -1,6 +1,7 @@
 export type EventType = 'screen' | 'event';
 export type Interval = 'hour' | 'day';
 export type Dimension =
+  | 'site'
   | 'name'
   | 'path'
   | 'source'
@@ -42,6 +43,21 @@ export interface Overview {
 export interface OverviewComparison {
   current: Overview;
   previous: Overview;
+}
+
+export interface SiteOverview extends Overview {
+  siteId: string;
+}
+
+/** Repartition par site de la periode et de la periode precedente de meme duree. */
+export interface SitesBreakdown {
+  current: SiteOverview[];
+  previous: SiteOverview[];
+}
+
+export interface SiteTimeseries {
+  siteId: string;
+  points: TimeseriesPoint[];
 }
 
 export interface TimeseriesPoint {

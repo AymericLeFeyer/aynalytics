@@ -5,13 +5,17 @@ import { z } from 'zod';
 import type { GetOverview } from '../../application/analytics/usecases/GetOverview';
 import type { GetPropertyBreakdown } from '../../application/analytics/usecases/GetPropertyBreakdown';
 import type { GetPropertyKeys } from '../../application/analytics/usecases/GetPropertyKeys';
+import type { GetSitesBreakdown } from '../../application/analytics/usecases/GetSitesBreakdown';
 import type { GetTimeseries } from '../../application/analytics/usecases/GetTimeseries';
+import type { GetTimeseriesBySite } from '../../application/analytics/usecases/GetTimeseriesBySite';
 import type { GetTopValues } from '../../application/analytics/usecases/GetTopValues';
 import type { ListEvents } from '../../application/analytics/usecases/ListEvents';
 
 export interface AnalyticsUseCases {
   getOverview: GetOverview;
   getTimeseries: GetTimeseries;
+  getSitesBreakdown: GetSitesBreakdown;
+  getTimeseriesBySite: GetTimeseriesBySite;
   getTopValues: GetTopValues;
   getPropertyKeys: GetPropertyKeys;
   getPropertyBreakdown: GetPropertyBreakdown;
@@ -66,6 +70,15 @@ export function analyticsRoutes(app: FastifyInstance, useCases: AnalyticsUseCase
   app.get('/api/stats/timeseries', async (request) => {
     const query = timeseriesQuery.parse(request.query);
     return useCases.getTimeseries.execute(toFilter(query), query.interval, query.tz);
+  });
+
+  app.get('/api/stats/sites', async (request) =>
+    useCases.getSitesBreakdown.execute(toFilter(filterQuery.parse(request.query))),
+  );
+
+  app.get('/api/stats/timeseries/sites', async (request) => {
+    const query = timeseriesQuery.parse(request.query);
+    return useCases.getTimeseriesBySite.execute(toFilter(query), query.interval, query.tz);
   });
 
   app.get('/api/stats/top', async (request) => {

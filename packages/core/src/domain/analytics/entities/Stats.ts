@@ -19,6 +19,11 @@ export interface Overview {
   sessions: number;
 }
 
+/** Vue d'ensemble d'un site (repartition multisite). */
+export interface SiteOverview extends Overview {
+  siteId: string;
+}
+
 export type Interval = 'hour' | 'day';
 export const INTERVAL_MS: Record<Interval, number> = { hour: 3_600_000, day: 86_400_000 };
 
@@ -28,11 +33,18 @@ export interface TimeseriesPoint {
   visitors: number;
 }
 
+/** Serie temporelle d'un site (meme bornes et buckets que `timeseries`). */
+export interface SiteTimeseries {
+  siteId: string;
+  points: TimeseriesPoint[];
+}
+
 /**
  * Dimensions groupables -> expression SQL (alias `e`). Whitelist : l'expression vient
  * exclusivement de cette table, jamais de l'entree utilisateur.
  */
 export const DIMENSIONS = {
+  site: 'e.site_id',
   name: 'e.name',
   path: 'e.path',
   title: 'e.title',

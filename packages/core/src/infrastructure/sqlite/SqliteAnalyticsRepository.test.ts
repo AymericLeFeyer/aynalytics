@@ -72,6 +72,23 @@ describe('SqliteAnalyticsRepository', () => {
     expect(setup().overview(filter)).toEqual({ total: 4, screens: 1, events: 3, visitors: 2, sessions: 2 });
   });
 
+  it('repartit la vue d ensemble par site', () => {
+    const { siteId: _ignored, ...allSites } = filter;
+    expect(setup().overviewBySite(allSites)).toEqual([
+      { siteId: 's1', total: 4, screens: 1, events: 3, visitors: 2, sessions: 2 },
+      { siteId: 's2', total: 1, screens: 0, events: 1, visitors: 1, sessions: 1 },
+    ]);
+  });
+
+  it('produit une serie complete par site', () => {
+    const { siteId: _ignored, ...allSites } = filter;
+    const series = setup().timeseriesBySite({ ...allSites, type: 'event' }, 'day', 0);
+    expect(series.map((s) => [s.siteId, s.points.map((p) => p.count)])).toEqual([
+      ['s1', [1, 2, 0]],
+      ['s2', [1, 0, 0]],
+    ]);
+  });
+
   it('remplit les trous de la serie temporelle', () => {
     const points = setup().timeseries({ ...filter, type: 'event' }, 'day', 0);
     expect(points.map((p) => p.count)).toEqual([1, 2, 0]);

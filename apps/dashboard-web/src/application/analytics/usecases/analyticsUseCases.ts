@@ -20,6 +20,27 @@ export function useTimeseries(filter: StatsFilter, interval: Interval) {
   });
 }
 
+/** Repartition par site ; `filter.siteId` est ignore (inutile dans la cle de cache). */
+export function useSitesBreakdown(filter: StatsFilter, enabled = true) {
+  const { siteId: _ignored, ...allSites } = filter;
+  return useQuery({
+    queryKey: ['sitesBreakdown', allSites],
+    queryFn: () => analyticsRepository.sites(allSites),
+    placeholderData: keepPreviousData,
+    enabled,
+  });
+}
+
+export function useTimeseriesBySite(filter: StatsFilter, interval: Interval, enabled = true) {
+  const { siteId: _ignored, ...allSites } = filter;
+  return useQuery({
+    queryKey: ['timeseriesBySite', allSites, interval],
+    queryFn: () => analyticsRepository.timeseriesBySite(allSites, interval, tzOffset()),
+    placeholderData: keepPreviousData,
+    enabled,
+  });
+}
+
 export function useTopValues(filter: StatsFilter, dimension: Dimension, limit = 10) {
   return useQuery({
     queryKey: ['top', filter, dimension, limit],

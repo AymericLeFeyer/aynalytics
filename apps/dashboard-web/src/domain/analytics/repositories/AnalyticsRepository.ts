@@ -6,6 +6,8 @@ import type {
   OverviewComparison,
   PropertyBreakdown,
   PropertyKeyRow,
+  SitesBreakdown,
+  SiteTimeseries,
   StatsFilter,
   TimeseriesPoint,
   TopRow,
@@ -14,6 +16,14 @@ import type {
 export interface AnalyticsRepository {
   overview(filter: StatsFilter): Promise<OverviewComparison>;
   timeseries(filter: StatsFilter, interval: Interval, tzOffsetMinutes: number): Promise<TimeseriesPoint[]>;
+  /** Tous sites confondus : `filter.siteId` est ignore. */
+  sites(filter: StatsFilter): Promise<SitesBreakdown>;
+  /** Tous sites confondus : `filter.siteId` est ignore. */
+  timeseriesBySite(
+    filter: StatsFilter,
+    interval: Interval,
+    tzOffsetMinutes: number,
+  ): Promise<SiteTimeseries[]>;
   top(filter: StatsFilter, dimension: Dimension, limit: number): Promise<TopRow[]>;
   propertyKeys(filter: StatsFilter): Promise<PropertyKeyRow[]>;
   breakdown(filter: StatsFilter, key: string, limit: number): Promise<PropertyBreakdown>;

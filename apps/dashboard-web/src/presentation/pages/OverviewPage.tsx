@@ -10,6 +10,7 @@ import type { Dimension } from '../../domain/analytics/entities/Stats';
 import { DIMENSION_LABELS } from '../../shared/constants';
 import { formatDimensionValue } from '../../shared/format';
 import { KpiCards } from '../components/KpiCards';
+import { SitesBreakdownCard, SitesTimeseriesCard } from '../components/SitesBreakdown';
 import { TimeseriesChart } from '../components/TimeseriesChart';
 import { TopTable } from '../components/TopTable';
 import { useFilters } from '../hooks/useFilters';
@@ -44,7 +45,8 @@ function DimensionCard({ dimensions, title }: { dimensions: Dimension[]; title: 
 
 export function OverviewPage() {
   const navigate = useNavigate();
-  const { filter, interval } = useFilters();
+  const { filter, interval, setSiteId } = useFilters();
+  const allSites = !filter.siteId;
   const overview = useOverview(filter);
   const series = useTimeseries(filter, interval);
   const screens = useTopValues({ ...filter, type: 'screen' }, 'name');
@@ -55,7 +57,19 @@ export function OverviewPage() {
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
       <KpiCards data={overview.data} loading={overview.isLoading} />
 
-      <Card size="small" title="Activité">
+      {/* Tous les sites : d'ou vient le trafic ; un clic sur un site filtre tout le dashboard. */}
+      {allSites && (
+        <Row gutter={[16, 16]}>
+          <Col xs={24} xxl={12}>
+            <SitesBreakdownCard filter={filter} onSelect={setSiteId} />
+          </Col>
+          <Col xs={24} xxl={12}>
+            <SitesTimeseriesCard filter={filter} interval={interval} />
+          </Col>
+        </Row>
+      )}
+
+      <Card size="small" title={allSites ? 'Activité (tous les sites)' : 'Activité'}>
         <TimeseriesChart points={series.data} interval={interval} loading={series.isFetching} />
       </Card>
 

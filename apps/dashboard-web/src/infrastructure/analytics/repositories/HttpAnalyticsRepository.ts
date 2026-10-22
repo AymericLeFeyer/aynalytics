@@ -6,6 +6,8 @@ import type {
   OverviewComparison,
   PropertyBreakdown,
   PropertyKeyRow,
+  SitesBreakdown,
+  SiteTimeseries,
   StatsFilter,
   TimeseriesPoint,
   TopRow,
@@ -22,6 +24,14 @@ export class HttpAnalyticsRepository implements AnalyticsRepository {
 
   timeseries(filter: StatsFilter, interval: Interval, tz: number) {
     return this.http.get<TimeseriesPoint[]>('/api/stats/timeseries', { ...filter, interval, tz });
+  }
+
+  sites(filter: StatsFilter) {
+    return this.http.get<SitesBreakdown>('/api/stats/sites', { ...filter });
+  }
+
+  timeseriesBySite(filter: StatsFilter, interval: Interval, tz: number) {
+    return this.http.get<SiteTimeseries[]>('/api/stats/timeseries/sites', { ...filter, interval, tz });
   }
 
   top(filter: StatsFilter, dimension: Dimension, limit: number) {

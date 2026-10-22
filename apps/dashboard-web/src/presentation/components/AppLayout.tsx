@@ -1,6 +1,16 @@
-import { AppstoreOutlined, DashboardOutlined, ThunderboltOutlined } from '@ant-design/icons';
-import { Grid, Layout, Menu, theme, Typography } from 'antd';
+import {
+  AppstoreOutlined,
+  DashboardOutlined,
+  DesktopOutlined,
+  MoonOutlined,
+  SunOutlined,
+  ThunderboltOutlined,
+} from '@ant-design/icons';
+import { Grid, Layout, Menu, Segmented, theme, Tooltip, Typography } from 'antd';
+import type { ReactNode } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import type { ThemeMode } from '../hooks/useThemeMode';
+import { useThemeMode } from '../hooks/useThemeMode';
 import { FiltersBar } from './FiltersBar';
 
 const MENU = [
@@ -8,6 +18,32 @@ const MENU = [
   { key: '/events', icon: <ThunderboltOutlined />, label: 'Explorer' },
   { key: '/sites', icon: <AppstoreOutlined />, label: 'Sites' },
 ];
+
+const THEME_OPTIONS: { value: ThemeMode; label: string; icon: ReactNode }[] = [
+  { value: 'system', label: 'Système', icon: <DesktopOutlined /> },
+  { value: 'light', label: 'Clair', icon: <SunOutlined /> },
+  { value: 'dark', label: 'Sombre', icon: <MoonOutlined /> },
+];
+
+function ThemeSwitch() {
+  const { mode, setMode } = useThemeMode();
+  return (
+    <Segmented<ThemeMode>
+      block
+      size="small"
+      value={mode}
+      onChange={setMode}
+      options={THEME_OPTIONS.map(({ value, label, icon }) => ({
+        value,
+        label: (
+          <Tooltip title={label}>
+            <span aria-label={label}>{icon}</span>
+          </Tooltip>
+        ),
+      }))}
+    />
+  );
+}
 
 export function AppLayout() {
   const navigate = useNavigate();
@@ -32,8 +68,11 @@ export function AppLayout() {
           onClick={({ key }) => navigate(key)}
           style={{ borderInlineEnd: 'none' }}
         />
+        <div style={{ padding: '16px 24px 0' }}>
+          <ThemeSwitch />
+        </div>
         {/* Attribution exigee par la licence CC BY 4.0 de la base de geolocalisation. */}
-        <Typography.Text type="secondary" style={{ display: 'block', padding: '16px 24px', fontSize: 12 }}>
+        <Typography.Text type="secondary" style={{ display: 'block', padding: '12px 24px', fontSize: 12 }}>
           <a href="https://db-ip.com" target="_blank" rel="noopener noreferrer">
             IP Geolocation by DB-IP
           </a>

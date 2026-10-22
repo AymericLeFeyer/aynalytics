@@ -1,7 +1,7 @@
 # aynalytics — CLAUDE.md
 
 > Analytics self-hosted : SDK de tracking (screens + events a proprietes libres) -> collector public -> dashboard interne (Pangolin SSO).
-> **Dernière mise à jour : 2026-10-21** (v0.2 : geolocalisation IP DB-IP, contexte navigateur, clics sortants automatiques, migration v2)
+> **Dernière mise à jour : 2026-10-22** (repartition multisite, theme clair/sombre/systeme ; v0.2 : geolocalisation IP DB-IP, contexte navigateur, clics sortants automatiques, migration v2)
 
 ## Stack
 
@@ -69,8 +69,8 @@ apps/dashboard-web/src/     # SPA DDD
 ### analytics
 
 - **StatsFilter** `{ siteId?, from, to, type?, name?, source?, path? }` (ms, `to` exclusif).
-- **AnalyticsRepository** : `overview(f)`, `timeseries(f, 'hour'|'day', tzOffsetMinutes)` (trous remplis a 0), `top(f, dimension, limit)`, `propertyKeys(f)`, `propertyBreakdown(f, key, limit) -> { rows, numeric: {count,sum,avg,min,max}|null }`, `listEvents(f, { limit, before?, propKey?, propValue? })`.
-- `DIMENSIONS` (dimension -> **expression SQL** whitelistee) : `name, path, title, source, referrer (->referrer_host), utm_source, utm_medium, utm_campaign, browser, os, device, language, country, region, city, timezone, screen (largeur x hauteur), color_scheme, connection`.
+- **AnalyticsRepository** : `overview(f)`, `timeseries(f, 'hour'|'day', tzOffsetMinutes)` (trous remplis a 0), `overviewBySite(f) -> SiteOverview[]` (`Overview & { siteId }`, visiteurs decroissants, sites sans evenement absents), `timeseriesBySite(f, interval, tz) -> SiteTimeseries[]` (`{ siteId, points }`, memes buckets que `timeseries`), `top(f, dimension, limit)`, `propertyKeys(f)`, `propertyBreakdown(f, key, limit) -> { rows, numeric: {count,sum,avg,min,max}|null }`, `listEvents(f, { limit, before?, propKey?, propValue? })`.
+- `DIMENSIONS` (dimension -> **expression SQL** whitelistee) : `site (->site_id), name, path, title, source, referrer (->referrer_host), utm_source, utm_medium, utm_campaign, browser, os, device, language, country, region, city, timezone, screen (largeur x hauteur), color_scheme, connection`.
 - **Visiteurs uniques** = `COUNT(DISTINCT COALESCE(anonymous_id, visitor_hash))` partout (overview, series, tops) : identifiant persistant du SDK s'il existe, sinon hash journalier.
 
 ## Use cases (signatures `execute`)
@@ -84,7 +84,7 @@ Collector :
 Dashboard :
 
 - `ListSites.execute() -> PublicSite[]` · `CreateSite.execute({ name, allowedOrigins }) -> { site, secretKey }` · `UpdateSite.execute(id, { name?, allowedOrigins?, active? }) -> PublicSite` · `RotateSiteSecret.execute(id) -> { secretKey }` · `DeleteSite.execute(id) -> { deletedEvents }`
-- `GetOverview.execute(f) -> { current, previous }` (periode precedente de meme duree) · `GetTimeseries.execute(f, interval, tz)` (max 1000 buckets) · `GetTopValues.execute(f, dim, limit)` · `GetPropertyKeys.execute(f)` · `GetPropertyBreakdown.execute(f, key, limit)` · `ListEvents.execute(f, q) -> { items, nextCursor }`
+- `GetOverview.execute(f) -> { current, previous }` (periode precedente de meme duree) · `GetTimeseries.execute(f, interval, tz)` (max 1000 buckets) · `GetSitesBreakdown.execute(f) -> { current: SiteOverview[], previous: SiteOverview[] }` · `GetTimeseriesBySite.execute(f, interval, tz) -> SiteTimeseries[]` (max 1000 buckets) — ces deux-la **ignorent `f.siteId`** (tous sites) · `GetTopValues.execute(f, dim, limit)` · `GetPropertyKeys.execute(f)` · `GetPropertyBreakdown.execute(f, key, limit)` · `ListEvents.execute(f, q) -> { items, nextCursor }`
 
 ## Endpoints
 
@@ -110,6 +110,8 @@ Dashboard (interne, tout sous basic auth sauf `/api/health`, mutations exigent `
 | DELETE  | `/api/sites/:id`                                           | supprime site + evenements -> `{ deletedEvents }`                                       |
 | GET     | `/api/stats/overview?from&to&siteId&type&name&source&path` | `{ current, previous }`                                                                 |
 | GET     | `/api/stats/timeseries?...&interval=hour                   | day&tz=<minutes>`                                                                       | points |
+| GET     | `/api/stats/sites?from&to&type&name&source&path`           | `{ current, previous }` : `SiteOverview[]` par site (`siteId` ignore)                   |
+| GET     | `/api/stats/timeseries/sites?...&interval&tz`              | `[{ siteId, points }]` une serie par site (`siteId` ignore)                             |
 | GET     | `/api/stats/top?...&dimension=<DIMENSIONS>&limit<=100`     | `[{value,count,visitors}]`                                                              |
 | GET     | `/api/stats/properties?...` (avec `name`)                  | `[{key,count}]`                                                                         |
 | GET     | `/api/stats/breakdown?...&key&limit<=200`                  | `{ rows, numeric }`                                                                     |
@@ -120,16 +122,18 @@ Contraintes de requete stats : `to > from`, plage <= 2 ans.
 
 ## Front
 
-Routes : `/` (OverviewPage : KPIs Visiteurs uniques / Visites / Pages vues / Evenements + variation, courbe, top ecrans/events cliquables, acquisition, localisation, technologie, preferences, titres), `/events?type&name&key&value` (EventsPage : explorateur, proprietes dynamiques, flux brut pagine), `/sites` (SitesPage : CRUD, cle secrete, snippets).
+Routes : `/` (OverviewPage : KPIs Visiteurs uniques / Visites / Pages vues / Evenements + variation ; en vue **Tous les sites** : `SitesBreakdownCard` (part de chaque site sur la metrique choisie, chiffres cles, variation ; clic = filtre sur le site) + `SitesTimeseriesCard` (une courbe par site) ; courbe, top ecrans/events cliquables, acquisition, localisation, technologie, preferences, titres), `/events?type&name&key&value` (EventsPage : explorateur, proprietes dynamiques, tableau « Par site » (dimension `site`) et colonne Site du flux brut en vue Tous les sites, flux brut pagine), `/sites` (SitesPage : CRUD, cle secrete, snippets).
 
 Hooks (application) :
 
-| Hook                                                                                                                   | Fichier                                               |
-| ---------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| `useSites`, `useCreateSite`, `useUpdateSite`, `useRotateSiteSecret`, `useDeleteSite`                                   | `application/sites/usecases/siteUseCases.ts`          |
-| `useOverview`, `useTimeseries`, `useTopValues`, `usePropertyKeys`, `usePropertyBreakdown`, `useEventStream` (infinite) | `application/analytics/usecases/analyticsUseCases.ts` |
-| `useAppConfig`                                                                                                         | `application/config/usecases/useAppConfig.ts`         |
-| `useFilters` (contexte site + periode, persiste en localStorage)                                                       | `presentation/hooks/useFilters.tsx`                   |
+| Hook                                                                                                                                                               | Fichier                                               |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------- |
+| `useSites`, `useCreateSite`, `useUpdateSite`, `useRotateSiteSecret`, `useDeleteSite`                                                                               | `application/sites/usecases/siteUseCases.ts`          |
+| `useOverview`, `useTimeseries`, `useSitesBreakdown`, `useTimeseriesBySite`, `useTopValues`, `usePropertyKeys`, `usePropertyBreakdown`, `useEventStream` (infinite) | `application/analytics/usecases/analyticsUseCases.ts` |
+| `useAppConfig`                                                                                                                                                     | `application/config/usecases/useAppConfig.ts`         |
+| `useFilters` (contexte site + periode, persiste en localStorage)                                                                                                   | `presentation/hooks/useFilters.tsx`                   |
+| `useThemeMode` (`system`/`light`/`dark`, localStorage `aynalytics:theme`, `dark` resolu) + `ThemeModeProvider`                                                     | `presentation/hooks/useThemeMode.tsx`                 |
+| `useSiteNames() -> (siteId) => nom` (les stats ne renvoient que l'id)                                                                                              | `presentation/hooks/useSiteNames.ts`                  |
 
 ## SDK
 
@@ -154,6 +158,8 @@ Hooks (application) :
 - `@aynalytics/core` est consomme **en sources TS** (devDependency des apps) : `tsx` en dev, `tsup` le bundle en prod (`noExternal`). Ses deps runtime (`better-sqlite3`, `zod`) doivent etre declarees dans les `dependencies` de chaque app.
 - Repositories SQLite **synchrones** ; toutes les valeurs passent en parametres nommes ; les colonnes dynamiques viennent uniquement de `DIMENSIONS`.
 - Migrations : tableau `MIGRATIONS` indexe par `PRAGMA user_version`, executees en transaction `IMMEDIATE` (les 2 conteneurs peuvent demarrer en meme temps). **Ne jamais modifier une migration existante**, en ajouter une.
+- Courbes `@ant-design/plots` : toujours `{...lineTheme(token)}` (`TimeseriesChart.tsx`) pour des axes/legende lisibles en clair comme en sombre.
+- Hooks multisites (`useSitesBreakdown`, `useTimeseriesBySite`) : `siteId` retire du filtre **et** de la `queryKey` (changer de site ne relance pas la requete).
 - Le front calcule la periode au moment du choix (pas a chaque rendu) pour des `queryKey` stables ; le bouton Actualiser recalcule + `invalidateQueries()`.
 - Tests d'API via `buildCollector` / `buildDashboard` + `app.inject` sur base `:memory:`.
 
@@ -168,5 +174,7 @@ Hooks (application) :
 - **Geolocalisation** : base DB-IP telechargee au demarrage puis verifiee chaque jour (retelechargee si > 32 jours, fallback mois precedent), rechargee a chaud. Sans reseau, la collecte continue sans localisation. `GEOIP=city` ~120 Mo de RAM / 5 s de chargement, `country` ~10 Mo. Attribution "IP Geolocation by DB-IP" obligatoire (affichee dans la sidebar du dashboard).
 - **Diagnostic IP reelle** : si tous les visiteurs sont a **Roubaix** (IP OVH du VPS) ou sans pays (IP Docker privee), le collector ne recoit pas l'IP client -> verifier `TRUST_PROXY` / X-Forwarded-For de Pangolin.
 - SDK : dans happy-dom, cliquer un lien sans `target="_blank"` navigue reellement (meme avec `preventDefault`) et fausse les tests suivants : toujours `target="_blank"` dans les fixtures.
+- **Marge du body** : antd ne reset pas le `margin: 8px` du navigateur -> `src/index.css` (importe dans `main.tsx`) ; le fond du body suit `colorBgLayout` (`BodyBackground`).
+- En vue Tous les sites, les tops par `name`/`path` **fusionnent les sites** (`/` de deux sites = une ligne) : filtrer sur un site pour un top fiable.
 - Vite 8 est impose par vitest 4 (hoisting) : garder la meme majeure de Vite dans `dashboard-web`, sinon conflit de types du plugin React.
 - `typescript-eslint`/`eslint` 9 : ne pas monter eslint 10 tant que les plugins ne suivent pas.
