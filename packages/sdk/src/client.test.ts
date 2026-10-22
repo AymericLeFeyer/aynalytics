@@ -96,6 +96,19 @@ describe('AynalyticsClient', () => {
     });
   });
 
+  it('trace aussi le clic molette (ouverture dans un nouvel onglet), pas le clic droit', async () => {
+    document.body.innerHTML = `<a id="buy" href="https://boutique.exemple/p/1" target="_blank" data-ay-event="purchase_click">Acheter</a>`;
+    client = new AynalyticsClient({ ...OPTIONS, autoScreens: false });
+    const link = document.getElementById('buy');
+    link?.dispatchEvent(new MouseEvent('auxclick', { bubbles: true, button: 2 }));
+    expect(beaconMock).not.toHaveBeenCalled();
+    link?.dispatchEvent(new MouseEvent('auxclick', { bubbles: true, button: 1 }));
+
+    expect(beaconMock).toHaveBeenCalledOnce();
+    const [payload] = await beaconPayloads();
+    expect(payload?.events[0]).toMatchObject({ name: 'purchase_click' });
+  });
+
   it('trace un screen par route, apres mise a jour du titre, et ignore les routes quittees aussitot', () => {
     vi.useFakeTimers();
     try {

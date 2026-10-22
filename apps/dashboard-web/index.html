@@ -6,6 +6,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex, nofollow" />
     <title>Aynalytics</title>
+    <!--
+      antd ne remet pas a zero la marge par defaut du navigateur (8 px autour de toute l'app).
+      En ligne (CSP : style-src 'unsafe-inline') : applique avant tout chargement de fichier.
+    -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>

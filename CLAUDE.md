@@ -143,6 +143,7 @@ Hooks (application) :
 - **Clics sortants** : tout lien externe, `mailto:`, `tel:` -> `outbound_click { url, host, text, section, ...data-ay-prop-* }`. `section` = `data-ay-section` > `<section id>` > landmark (header/nav/footer/aside/main). `classifyLink(link)` (appele pour tout lien hors `data-ay-event`, internes compris) : retourne `{ name, properties }` pour renommer, `false` pour ignorer, `null` = defaut.
 - `persistence: 'local'` : anonymousId `{ id, createdAt }` en localStorage, renouvele apres 13 mois.
 - Balise : `<script defer src="<collector>/sdk.js" data-site-key="ay_pk_..." [data-auto-screens="false"] [data-persistence="local"] [data-respect-dnt="true"]>` ; endpoint = origine du script. Stub `window.aynalytics.q` rejoue apres l'init ; sans `data-site-key`, appeler `window.aynalytics.init({...})` depuis le code (necessaire pour passer `classifyLink`) : les appels faits avant sont mis en file.
+- Clics : `click` **et** `auxclick` bouton du milieu (ouverture dans un nouvel onglet a la molette) ; le clic droit > « ouvrir dans un nouvel onglet » reste invisible.
 - Clics sans JS : `data-ay-event="purchase_click"` + `data-ay-prop-<cle>="valeur"` (nombres/booleens convertis, `href` ajoute pour les liens) -> envoi immediat via `sendBeacon`.
 - File : flush apres 1 s ou 20 evenements, `sendBeacon` sur `pagehide`/`visibilitychange`. Session 30 min d'inactivite, stocke referent externe + UTM d'arrivee.
 - Serveur : `createServerClient({ endpoint, siteKey, secretKey })` depuis `@aynalytics/sdk/server` (Bearer).
@@ -173,8 +174,9 @@ Hooks (application) :
 - `visitorHash` change chaque jour (sel tournant) : les "visiteurs" sont uniques **par jour** ; sur une periode longue, c'est une somme approx. Pour du recurrent, `persistence: 'local'` (anonymousId) — peut necessiter un consentement.
 - **Geolocalisation** : base DB-IP telechargee au demarrage puis verifiee chaque jour (retelechargee si > 32 jours, fallback mois precedent), rechargee a chaud. Sans reseau, la collecte continue sans localisation. `GEOIP=city` ~120 Mo de RAM / 5 s de chargement, `country` ~10 Mo. Attribution "IP Geolocation by DB-IP" obligatoire (affichee dans la sidebar du dashboard).
 - **Diagnostic IP reelle** : si tous les visiteurs sont a **Roubaix** (IP OVH du VPS) ou sans pays (IP Docker privee), le collector ne recoit pas l'IP client -> verifier `TRUST_PROXY` / X-Forwarded-For de Pangolin.
+- **Filtre bots** : un UA `HeadlessChrome` (Playwright, Puppeteer) donne `202 {accepted: 0}`. Pour tester un site en prod, forcer un `userAgent` de navigateur classique, sinon on croit a tort que rien n'est enregistre.
 - SDK : dans happy-dom, cliquer un lien sans `target="_blank"` navigue reellement (meme avec `preventDefault`) et fausse les tests suivants : toujours `target="_blank"` dans les fixtures.
-- **Marge du body** : antd ne reset pas le `margin: 8px` du navigateur -> `src/index.css` (importe dans `main.tsx`) ; le fond du body suit `colorBgLayout` (`BodyBackground`).
+- **Marge du body** : antd ne reset pas le `margin: 8px` du navigateur -> `<style>` **en ligne dans `index.html`** (CSP `style-src 'unsafe-inline'`), pas un fichier CSS importe : independant du chargement des assets. Le fond du body suit `colorBgLayout` (`BodyBackground`).
 - En vue Tous les sites, les tops par `name`/`path` **fusionnent les sites** (`/` de deux sites = une ligne) : filtrer sur un site pour un top fiable.
 - Vite 8 est impose par vitest 4 (hoisting) : garder la meme majeure de Vite dans `dashboard-web`, sinon conflit de types du plugin React.
 - `typescript-eslint`/`eslint` 9 : ne pas monter eslint 10 tant que les plugins ne suivent pas.

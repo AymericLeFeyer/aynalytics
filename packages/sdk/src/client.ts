@@ -182,6 +182,8 @@ export class AynalyticsClient {
     });
     if (options.autoClicks !== false || options.outboundLinks !== false || options.classifyLink) {
       this.listen(document, 'click', this.onClick, true);
+      // Clic molette (« ouvrir dans un nouvel onglet ») : pas d'evenement `click`, seulement `auxclick`.
+      this.listen(document, 'auxclick', this.onAuxClick, true);
     }
     if (options.autoScreens !== false) this.watchRoutes();
   }
@@ -310,6 +312,10 @@ export class AynalyticsClient {
         if (this.options.debug) console.warn('[aynalytics] envoi impossible', err);
       });
   }
+
+  private onAuxClick = (event: Event): void => {
+    if (event instanceof MouseEvent && event.button === 1) this.onClick(event);
+  };
 
   private onClick = (event: Event): void => {
     if (!(event.target instanceof Element)) return;
