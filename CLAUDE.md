@@ -99,25 +99,25 @@ Collector (public, `https://analytics.<domaine>`) :
 
 Dashboard (interne, tout sous basic auth sauf `/api/health`, mutations exigent `x-aynalytics-csrf: 1`) :
 
-| Methode | Route                                                      | Role                                                                                    |
-| ------- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| GET     | `/api/health`                                              | non protege                                                                             |
-| GET     | `/api/config`                                              | `{ collectorUrl }` (env `COLLECTOR_PUBLIC_URL`)                                         |
-| GET     | `/api/sites`                                               | liste (sans hash)                                                                       |
-| POST    | `/api/sites`                                               | `{ name, allowedOrigins[] }` -> 201 `{ site, secretKey }` (cle affichee une seule fois) |
-| PATCH   | `/api/sites/:id`                                           | `{ name?, allowedOrigins?, active? }`                                                   |
-| POST    | `/api/sites/:id/rotate-secret`                             | `{ secretKey }`                                                                         |
-| DELETE  | `/api/sites/:id`                                           | supprime site + evenements -> `{ deletedEvents }`                                       |
-| GET     | `/api/stats/overview?from&to&siteId&type&name&source&path` | `{ current, previous }`                                                                 |
-| GET     | `/api/stats/timeseries?...&interval=hour                   | day&tz=<minutes>`                                                                       | points |
-| GET     | `/api/stats/sites?from&to&type&name&source&path`           | `{ current, previous }` : `SiteOverview[]` par site (`siteId` ignore)                   |
-| GET     | `/api/stats/timeseries/sites?...&interval&tz`              | `[{ siteId, points }]` une serie par site (`siteId` ignore)                             |
-| GET     | `/api/stats/top?...&dimension=<DIMENSIONS>&limit<=100`     | `[{value,count,visitors}]`                                                              |
-| GET     | `/api/stats/properties?...` (avec `name`)                  | `[{key,count}]`                                                                         |
-| GET     | `/api/stats/breakdown?...&key&limit<=200`                  | `{ rows, numeric }`                                                                     |
-| GET     | `/api/stats/groups?...&fields=path,source,prop:<cle>&limit<=100&interval&tz` | `GroupRow[]` : regroupement multi-champs + premier/dernier ts + serie par groupe |
-| GET     | `/api/events?...&limit<=200&before&propKey&propValue`      | `{ items, nextCursor }`                                                                 |
-| GET     | `/*`                                                       | SPA (fallback `index.html`)                                                             |
+| Methode | Route                                                                        | Role                                                                                    |
+| ------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| GET     | `/api/health`                                                                | non protege                                                                             |
+| GET     | `/api/config`                                                                | `{ collectorUrl }` (env `COLLECTOR_PUBLIC_URL`)                                         |
+| GET     | `/api/sites`                                                                 | liste (sans hash)                                                                       |
+| POST    | `/api/sites`                                                                 | `{ name, allowedOrigins[] }` -> 201 `{ site, secretKey }` (cle affichee une seule fois) |
+| PATCH   | `/api/sites/:id`                                                             | `{ name?, allowedOrigins?, active? }`                                                   |
+| POST    | `/api/sites/:id/rotate-secret`                                               | `{ secretKey }`                                                                         |
+| DELETE  | `/api/sites/:id`                                                             | supprime site + evenements -> `{ deletedEvents }`                                       |
+| GET     | `/api/stats/overview?from&to&siteId&type&name&source&path`                   | `{ current, previous }`                                                                 |
+| GET     | `/api/stats/timeseries?...&interval=hour                                     | day&tz=<minutes>`                                                                       | points |
+| GET     | `/api/stats/sites?from&to&type&name&source&path`                             | `{ current, previous }` : `SiteOverview[]` par site (`siteId` ignore)                   |
+| GET     | `/api/stats/timeseries/sites?...&interval&tz`                                | `[{ siteId, points }]` une serie par site (`siteId` ignore)                             |
+| GET     | `/api/stats/top?...&dimension=<DIMENSIONS>&limit<=100`                       | `[{value,count,visitors}]`                                                              |
+| GET     | `/api/stats/properties?...` (avec `name`)                                    | `[{key,count}]`                                                                         |
+| GET     | `/api/stats/breakdown?...&key&limit<=200`                                    | `{ rows, numeric }`                                                                     |
+| GET     | `/api/stats/groups?...&fields=path,source,prop:<cle>&limit<=100&interval&tz` | `GroupRow[]` : regroupement multi-champs + premier/dernier ts + serie par groupe        |
+| GET     | `/api/events?...&limit<=200&before&propKey&propValue`                        | `{ items, nextCursor }`                                                                 |
+| GET     | `/*`                                                                         | SPA (fallback `index.html`)                                                             |
 
 Contraintes de requete stats : `to > from`, plage <= 2 ans.
 
@@ -127,14 +127,14 @@ Routes : `/` (OverviewPage : KPIs Visiteurs uniques / Visites / Pages vues / Eve
 
 Hooks (application) :
 
-| Hook                                                                                                                                                               | Fichier                                               |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------- |
-| `useSites`, `useCreateSite`, `useUpdateSite`, `useRotateSiteSecret`, `useDeleteSite`                                                                               | `application/sites/usecases/siteUseCases.ts`          |
+| Hook                                                                                                                                                                                  | Fichier                                               |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| `useSites`, `useCreateSite`, `useUpdateSite`, `useRotateSiteSecret`, `useDeleteSite`                                                                                                  | `application/sites/usecases/siteUseCases.ts`          |
 | `useOverview`, `useTimeseries`, `useSitesBreakdown`, `useTimeseriesBySite`, `useTopValues`, `usePropertyKeys`, `usePropertyBreakdown`, `useGroupedStats`, `useEventStream` (infinite) | `application/analytics/usecases/analyticsUseCases.ts` |
-| `useAppConfig`                                                                                                                                                     | `application/config/usecases/useAppConfig.ts`         |
-| `useFilters` (contexte site + periode, persiste en localStorage)                                                                                                   | `presentation/hooks/useFilters.tsx`                   |
-| `useThemeMode` (`system`/`light`/`dark`, localStorage `aynalytics:theme`, `dark` resolu) + `ThemeModeProvider`                                                     | `presentation/hooks/useThemeMode.tsx`                 |
-| `useSiteNames() -> (siteId) => nom` (les stats ne renvoient que l'id)                                                                                              | `presentation/hooks/useSiteNames.ts`                  |
+| `useAppConfig`                                                                                                                                                                        | `application/config/usecases/useAppConfig.ts`         |
+| `useFilters` (contexte site + periode, persiste en localStorage)                                                                                                                      | `presentation/hooks/useFilters.tsx`                   |
+| `useThemeMode` (`system`/`light`/`dark`, localStorage `aynalytics:theme`, `dark` resolu) + `ThemeModeProvider`                                                                        | `presentation/hooks/useThemeMode.tsx`                 |
+| `useSiteNames() -> (siteId) => nom` (les stats ne renvoient que l'id)                                                                                                                 | `presentation/hooks/useSiteNames.ts`                  |
 
 ## SDK
 
