@@ -2,6 +2,8 @@ import type {
   Dimension,
   EventPage,
   EventQuery,
+  GroupField,
+  GroupRow,
   Interval,
   OverviewComparison,
   PropertyBreakdown,
@@ -44,6 +46,20 @@ export class HttpAnalyticsRepository implements AnalyticsRepository {
 
   breakdown(filter: StatsFilter, key: string, limit: number) {
     return this.http.get<PropertyBreakdown>('/api/stats/breakdown', { ...filter, key, limit });
+  }
+
+  groups(filter: StatsFilter, fields: GroupField[], interval: Interval, tz: number, limit: number) {
+    // Champs separes par des virgules : la cle de propriete est encodee pour pouvoir en contenir.
+    const encoded = fields
+      .map((f) => (f.startsWith('prop:') ? `prop:${encodeURIComponent(f.slice(5))}` : f))
+      .join(',');
+    return this.http.get<GroupRow[]>('/api/stats/groups', {
+      ...filter,
+      fields: encoded,
+      interval,
+      tz,
+      limit,
+    });
   }
 
   events(filter: StatsFilter, query: EventQuery) {

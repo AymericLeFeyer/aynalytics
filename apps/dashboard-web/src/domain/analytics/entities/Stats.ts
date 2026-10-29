@@ -90,6 +90,20 @@ export interface PropertyBreakdown {
   numeric: NumericSummary | null;
 }
 
+/** Champ de regroupement : dimension ou `prop:<cle>` (propriete libre). */
+export type GroupField = Dimension | `prop:${string}`;
+export const MAX_GROUP_FIELDS = 4;
+
+/** `values` dans l'ordre des champs demandes, `(aucun)` si absente. */
+export interface GroupRow {
+  values: string[];
+  count: number;
+  visitors: number;
+  firstTs: number;
+  lastTs: number;
+  points: TimeseriesPoint[];
+}
+
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
 export interface TrackedEvent {

@@ -142,6 +142,34 @@ describe('statistiques', () => {
     expect(ok.json().current.total).toBe(0);
   });
 
+  it('regroupe sur des dimensions et des proprietes (cle encodee)', async () => {
+    new SqliteEventRepository(db).insertMany(
+      [
+        { ts: 100, visitorHash: 'v1', properties: { merchant: 'amazon', 'a,b': 1 } },
+        { ts: 200, visitorHash: 'v2', properties: { merchant: 'amazon', 'a,b': 1 } },
+        { ts: 300, visitorHash: 'v2', properties: { merchant: 'fnac' } as TrackedEvent['properties'] },
+      ].map((e) => ({ ...emptyEvent(), path: '/p', ...e })),
+    );
+    const fields = encodeURIComponent(`path,prop:merchant,prop:${encodeURIComponent('a,b')}`);
+    const res = await api('GET', `/api/stats/groups?from=0&to=3600000&interval=hour&fields=${fields}`);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual([
+      expect.objectContaining({
+        values: ['/p', 'amazon', '1'],
+        count: 2,
+        visitors: 2,
+        firstTs: 100,
+        lastTs: 200,
+      }),
+      expect.objectContaining({ values: ['/p', 'fnac', '(aucun)'], count: 1, visitors: 1 }),
+    ]);
+    const bad = (f: string) => api('GET', `/api/stats/groups?from=0&to=1000&fields=${f}`);
+    expect((await bad('password')).statusCode).toBe(400);
+    expect((await bad('path,path')).statusCode).toBe(400);
+    expect((await bad('prop:%25E0')).statusCode).toBe(400);
+    expect((await bad('a,b,c,d,e')).statusCode).toBe(400);
+  });
+
   it('repartit les statistiques par site, sans tenir compte du site filtre', async () => {
     const events = new SqliteEventRepository(db);
     const base = { type: 'screen' as const, name: '/', properties: {}, receivedAt: 0, sessionId: null };

@@ -156,6 +156,59 @@ describe('donnees v2 (geo, contexte, visiteurs persistants)', () => {
   });
 });
 
+describe('groupBy', () => {
+  it('regroupe sur plusieurs dimensions et proprietes avec horodatage et serie', () => {
+    const db = openDatabase(':memory:');
+    const click = (partial: Partial<TrackedEvent>) =>
+      event({ name: 'outbound_click', path: '/promo', source: 'youtube', ...partial });
+    new SqliteEventRepository(db).insertMany([
+      click({ properties: { merchant: 'amazon', product_id: 42 }, visitorHash: 'v1', ts: T0 }),
+      click({ properties: { merchant: 'amazon', product_id: 42 }, visitorHash: 'v1', ts: T0 + 10 }),
+      click({ properties: { merchant: 'amazon', product_id: 42 }, visitorHash: 'v2', ts: T0 + DAY }),
+      click({ properties: { merchant: 'fnac', product_id: 42 }, visitorHash: 'v3', ts: T0 + 2 * DAY }),
+      click({ properties: {}, path: '/', visitorHash: 'v4', ts: T0 }),
+    ]);
+    const rows = new SqliteAnalyticsRepository(db).groupBy(
+      { ...filter, name: 'outbound_click' },
+      {
+        fields: [
+          { dimension: 'path' },
+          { dimension: 'source' },
+          { property: 'merchant' },
+          { property: 'product_id' },
+        ],
+        limit: 10,
+        interval: 'day',
+        tzOffsetMinutes: 0,
+      },
+    );
+    expect(rows.map((r) => [r.values, r.count, r.visitors])).toEqual([
+      [['/promo', 'youtube', 'amazon', '42'], 3, 2],
+      [['/', 'youtube', '(aucun)', '(aucun)'], 1, 1],
+      [['/promo', 'youtube', 'fnac', '42'], 1, 1],
+    ]);
+    expect(rows[0]).toMatchObject({ firstTs: T0, lastTs: T0 + DAY });
+    expect(rows[0]?.points.map((p) => p.count)).toEqual([2, 1, 0]);
+    expect(rows[2]?.points.map((p) => p.count)).toEqual([0, 0, 1]);
+  });
+
+  it('limite le nombre de groupes et leurs series', () => {
+    const db = openDatabase(':memory:');
+    new SqliteEventRepository(db).insertMany([
+      event({ path: '/a', visitorHash: 'v1' }),
+      event({ path: '/a', visitorHash: 'v2' }),
+      event({ path: '/b', visitorHash: 'v3' }),
+    ]);
+    const rows = new SqliteAnalyticsRepository(db).groupBy(filter, {
+      fields: [{ dimension: 'path' }],
+      limit: 1,
+      interval: 'day',
+      tzOffsetMinutes: 0,
+    });
+    expect(rows.map((r) => r.values)).toEqual([['/a']]);
+  });
+});
+
 describe('timeseries', () => {
   it('range les evenements en cours de journee dans le bon bucket (fuseau compris)', () => {
     const db = openDatabase(':memory:');

@@ -1,6 +1,12 @@
 import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { analyticsRepository } from '../../../composition';
-import type { Dimension, EventQuery, Interval, StatsFilter } from '../../../domain/analytics/entities/Stats';
+import type {
+  Dimension,
+  EventQuery,
+  GroupField,
+  Interval,
+  StatsFilter,
+} from '../../../domain/analytics/entities/Stats';
 
 const tzOffset = () => -new Date().getTimezoneOffset();
 
@@ -62,6 +68,16 @@ export function usePropertyBreakdown(filter: StatsFilter, key: string | undefine
     queryKey: ['breakdown', filter, key, limit],
     queryFn: () => analyticsRepository.breakdown(filter, key as string, limit),
     enabled: !!key,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** Regroupement multi-champs (desactive sans champ). */
+export function useGroupedStats(filter: StatsFilter, fields: GroupField[], interval: Interval, limit = 50) {
+  return useQuery({
+    queryKey: ['groups', filter, fields, interval, limit],
+    queryFn: () => analyticsRepository.groups(filter, fields, interval, tzOffset(), limit),
+    enabled: fields.length > 0,
     placeholderData: keepPreviousData,
   });
 }

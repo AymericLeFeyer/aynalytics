@@ -2,6 +2,8 @@ import type { StoredEvent } from '../../events/entities/TrackedEvent';
 import type {
   Dimension,
   EventListQuery,
+  GroupQuery,
+  GroupRow,
   Interval,
   Overview,
   PropertyBreakdown,
@@ -24,5 +26,7 @@ export interface AnalyticsRepository {
   top(filter: StatsFilter, dimension: Dimension, limit: number): TopRow[];
   propertyKeys(filter: StatsFilter): PropertyKeyRow[];
   propertyBreakdown(filter: StatsFilter, key: string, limit: number): PropertyBreakdown;
+  /** Regroupement multi-champs, groupes tries par visiteurs puis volume decroissants. */
+  groupBy(filter: StatsFilter, query: GroupQuery): GroupRow[];
   listEvents(filter: StatsFilter, query: EventListQuery): StoredEvent[];
 }

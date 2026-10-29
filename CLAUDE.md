@@ -1,7 +1,7 @@
 # aynalytics — CLAUDE.md
 
 > Analytics self-hosted : SDK de tracking (screens + events a proprietes libres) -> collector public -> dashboard interne (Pangolin SSO).
-> **Dernière mise à jour : 2026-10-22** (repartition multisite, theme clair/sombre/systeme ; v0.2 : geolocalisation IP DB-IP, contexte navigateur, clics sortants automatiques, migration v2)
+> **Dernière mise à jour : 2026-10-29** (regroupement multi-champs des events ; repartition multisite, theme clair/sombre/systeme ; v0.2 : geolocalisation IP DB-IP, contexte navigateur, clics sortants automatiques, migration v2)
 
 ## Stack
 
@@ -69,7 +69,7 @@ apps/dashboard-web/src/     # SPA DDD
 ### analytics
 
 - **StatsFilter** `{ siteId?, from, to, type?, name?, source?, path? }` (ms, `to` exclusif).
-- **AnalyticsRepository** : `overview(f)`, `timeseries(f, 'hour'|'day', tzOffsetMinutes)` (trous remplis a 0), `overviewBySite(f) -> SiteOverview[]` (`Overview & { siteId }`, visiteurs decroissants, sites sans evenement absents), `timeseriesBySite(f, interval, tz) -> SiteTimeseries[]` (`{ siteId, points }`, memes buckets que `timeseries`), `top(f, dimension, limit)`, `propertyKeys(f)`, `propertyBreakdown(f, key, limit) -> { rows, numeric: {count,sum,avg,min,max}|null }`, `listEvents(f, { limit, before?, propKey?, propValue? })`.
+- **AnalyticsRepository** : `overview(f)`, `timeseries(f, 'hour'|'day', tzOffsetMinutes)` (trous remplis a 0), `overviewBySite(f) -> SiteOverview[]` (`Overview & { siteId }`, visiteurs decroissants, sites sans evenement absents), `timeseriesBySite(f, interval, tz) -> SiteTimeseries[]` (`{ siteId, points }`, memes buckets que `timeseries`), `top(f, dimension, limit)`, `propertyKeys(f)`, `propertyBreakdown(f, key, limit) -> { rows, numeric: {count,sum,avg,min,max}|null }`, `groupBy(f, { fields: GroupField[], limit, interval, tzOffsetMinutes }) -> GroupRow[]` (`GroupField = {dimension} | {property}`, `GroupRow { values[], count, visitors, firstTs, lastTs, points }`, tri visiteurs puis volume, `MAX_GROUP_FIELDS = 4`), `listEvents(f, { limit, before?, propKey?, propValue? })`.
 - `DIMENSIONS` (dimension -> **expression SQL** whitelistee) : `site (->site_id), name, path, title, source, referrer (->referrer_host), utm_source, utm_medium, utm_campaign, browser, os, device, language, country, region, city, timezone, screen (largeur x hauteur), color_scheme, connection`.
 - **Visiteurs uniques** = `COUNT(DISTINCT COALESCE(anonymous_id, visitor_hash))` partout (overview, series, tops) : identifiant persistant du SDK s'il existe, sinon hash journalier.
 
@@ -84,7 +84,7 @@ Collector :
 Dashboard :
 
 - `ListSites.execute() -> PublicSite[]` · `CreateSite.execute({ name, allowedOrigins }) -> { site, secretKey }` · `UpdateSite.execute(id, { name?, allowedOrigins?, active? }) -> PublicSite` · `RotateSiteSecret.execute(id) -> { secretKey }` · `DeleteSite.execute(id) -> { deletedEvents }`
-- `GetOverview.execute(f) -> { current, previous }` (periode precedente de meme duree) · `GetTimeseries.execute(f, interval, tz)` (max 1000 buckets) · `GetSitesBreakdown.execute(f) -> { current: SiteOverview[], previous: SiteOverview[] }` · `GetTimeseriesBySite.execute(f, interval, tz) -> SiteTimeseries[]` (max 1000 buckets) — ces deux-la **ignorent `f.siteId`** (tous sites) · `GetTopValues.execute(f, dim, limit)` · `GetPropertyKeys.execute(f)` · `GetPropertyBreakdown.execute(f, key, limit)` · `ListEvents.execute(f, q) -> { items, nextCursor }`
+- `GetOverview.execute(f) -> { current, previous }` (periode precedente de meme duree) · `GetTimeseries.execute(f, interval, tz)` (max 1000 buckets) · `GetSitesBreakdown.execute(f) -> { current: SiteOverview[], previous: SiteOverview[] }` · `GetTimeseriesBySite.execute(f, interval, tz) -> SiteTimeseries[]` (max 1000 buckets) — ces deux-la **ignorent `f.siteId`** (tous sites) · `GetTopValues.execute(f, dim, limit)` · `GetPropertyKeys.execute(f)` · `GetPropertyBreakdown.execute(f, key, limit)` · `GetGroupedStats.execute(f, { fields, limit, interval, tzOffsetMinutes }) -> GroupRow[]` (1..4 champs distincts, max 1000 buckets) · `ListEvents.execute(f, q) -> { items, nextCursor }`
 
 ## Endpoints
 
@@ -115,6 +115,7 @@ Dashboard (interne, tout sous basic auth sauf `/api/health`, mutations exigent `
 | GET     | `/api/stats/top?...&dimension=<DIMENSIONS>&limit<=100`     | `[{value,count,visitors}]`                                                              |
 | GET     | `/api/stats/properties?...` (avec `name`)                  | `[{key,count}]`                                                                         |
 | GET     | `/api/stats/breakdown?...&key&limit<=200`                  | `{ rows, numeric }`                                                                     |
+| GET     | `/api/stats/groups?...&fields=path,source,prop:<cle>&limit<=100&interval&tz` | `GroupRow[]` : regroupement multi-champs + premier/dernier ts + serie par groupe |
 | GET     | `/api/events?...&limit<=200&before&propKey&propValue`      | `{ items, nextCursor }`                                                                 |
 | GET     | `/*`                                                       | SPA (fallback `index.html`)                                                             |
 
@@ -122,14 +123,14 @@ Contraintes de requete stats : `to > from`, plage <= 2 ans.
 
 ## Front
 
-Routes : `/` (OverviewPage : KPIs Visiteurs uniques / Visites / Pages vues / Evenements + variation ; en vue **Tous les sites** : `SitesBreakdownCard` (part de chaque site sur la metrique choisie, chiffres cles, variation ; clic = filtre sur le site) + `SitesTimeseriesCard` (une courbe par site) ; courbe, top ecrans/events cliquables, acquisition, localisation, technologie, preferences, titres), `/events?type&name&key&value` (EventsPage : explorateur, proprietes dynamiques, tableau « Par site » (dimension `site`) et colonne Site du flux brut en vue Tous les sites, flux brut pagine), `/sites` (SitesPage : CRUD, cle secrete, snippets).
+Routes : `/` (OverviewPage : KPIs Visiteurs uniques / Visites / Pages vues / Evenements + variation ; en vue **Tous les sites** : `SitesBreakdownCard` (part de chaque site sur la metrique choisie, chiffres cles, variation ; clic = filtre sur le site) + `SitesTimeseriesCard` (une courbe par site) ; courbe, top ecrans/events cliquables, acquisition, localisation, technologie, preferences, titres), `/events?type&name&key&value` (EventsPage : explorateur, proprietes dynamiques, tableau « Par site » (dimension `site`) et colonne Site du flux brut en vue Tous les sites, carte « Regroupement » (`?group=path&group=prop:merchant`, ligne depliee = courbe du groupe), flux brut pagine), `/sites` (SitesPage : CRUD, cle secrete, snippets).
 
 Hooks (application) :
 
 | Hook                                                                                                                                                               | Fichier                                               |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------- |
 | `useSites`, `useCreateSite`, `useUpdateSite`, `useRotateSiteSecret`, `useDeleteSite`                                                                               | `application/sites/usecases/siteUseCases.ts`          |
-| `useOverview`, `useTimeseries`, `useSitesBreakdown`, `useTimeseriesBySite`, `useTopValues`, `usePropertyKeys`, `usePropertyBreakdown`, `useEventStream` (infinite) | `application/analytics/usecases/analyticsUseCases.ts` |
+| `useOverview`, `useTimeseries`, `useSitesBreakdown`, `useTimeseriesBySite`, `useTopValues`, `usePropertyKeys`, `usePropertyBreakdown`, `useGroupedStats`, `useEventStream` (infinite) | `application/analytics/usecases/analyticsUseCases.ts` |
 | `useAppConfig`                                                                                                                                                     | `application/config/usecases/useAppConfig.ts`         |
 | `useFilters` (contexte site + periode, persiste en localStorage)                                                                                                   | `presentation/hooks/useFilters.tsx`                   |
 | `useThemeMode` (`system`/`light`/`dark`, localStorage `aynalytics:theme`, `dark` resolu) + `ThemeModeProvider`                                                     | `presentation/hooks/useThemeMode.tsx`                 |
@@ -177,6 +178,7 @@ Hooks (application) :
 - **Filtre bots** : un UA `HeadlessChrome` (Playwright, Puppeteer) donne `202 {accepted: 0}`. Pour tester un site en prod, forcer un `userAgent` de navigateur classique, sinon on croit a tort que rien n'est enregistre.
 - SDK : dans happy-dom, cliquer un lien sans `target="_blank"` navigue reellement (meme avec `preventDefault`) et fausse les tests suivants : toujours `target="_blank"` dans les fixtures.
 - **Marge du body** : antd ne reset pas le `margin: 8px` du navigateur -> `<style>` **en ligne dans `index.html`** (CSP `style-src 'unsafe-inline'`), pas un fichier CSS importe : independant du chargement des assets. Le fond du body suit `colorBgLayout` (`BodyBackground`).
+- **`fields` de `/api/stats/groups`** : liste separee par des virgules, la cle de propriete est `encodeURIComponent`-ee en plus (`prop:a%2Cb`) pour pouvoir contenir une virgule ; `HttpAnalyticsRepository.groups` le fait, ne pas l envoyer brut. Une propriete absente vaut `(aucun)`, un booleen `true`/`false`.
 - En vue Tous les sites, les tops par `name`/`path` **fusionnent les sites** (`/` de deux sites = une ligne) : filtrer sur un site pour un top fiable.
 - Vite 8 est impose par vitest 4 (hoisting) : garder la meme majeure de Vite dans `dashboard-web`, sinon conflit de types du plugin React.
 - `typescript-eslint`/`eslint` 9 : ne pas monter eslint 10 tant que les plugins ne suivent pas.

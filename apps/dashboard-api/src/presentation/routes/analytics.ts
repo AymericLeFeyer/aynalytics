@@ -1,7 +1,8 @@
-import type { StatsFilter } from '@aynalytics/core';
-import { DIMENSION_KEYS, DomainError } from '@aynalytics/core';
+import type { Dimension, GroupField, StatsFilter } from '@aynalytics/core';
+import { DIMENSION_KEYS, DomainError, MAX_GROUP_FIELDS } from '@aynalytics/core';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import type { GetGroupedStats } from '../../application/analytics/usecases/GetGroupedStats';
 import type { GetOverview } from '../../application/analytics/usecases/GetOverview';
 import type { GetPropertyBreakdown } from '../../application/analytics/usecases/GetPropertyBreakdown';
 import type { GetPropertyKeys } from '../../application/analytics/usecases/GetPropertyKeys';
@@ -19,6 +20,7 @@ export interface AnalyticsUseCases {
   getTopValues: GetTopValues;
   getPropertyKeys: GetPropertyKeys;
   getPropertyBreakdown: GetPropertyBreakdown;
+  getGroupedStats: GetGroupedStats;
   listEvents: ListEvents;
 }
 
@@ -47,6 +49,31 @@ const topQuery = z.object({
   limit: limit(100, 10),
 });
 const breakdownQuery = z.object({ ...filterShape, key: z.string().min(1).max(64), limit: limit(200, 50) });
+/** `fields` : liste separee par des virgules de dimensions ou `prop:<cle>` (cle URL-encodee). */
+const groupField = z.string().transform((raw, ctx): GroupField => {
+  if (raw.startsWith('prop:')) {
+    let property = '';
+    try {
+      property = decodeURIComponent(raw.slice(5));
+    } catch {
+      // encodage invalide : rejete ci-dessous
+    }
+    if (property.length >= 1 && property.length <= 64) return { property };
+  } else if ((DIMENSION_KEYS as string[]).includes(raw)) {
+    return { dimension: raw as Dimension };
+  }
+  ctx.addIssue({ code: 'custom', message: `Champ de regroupement invalide : ${raw}` });
+  return z.NEVER;
+});
+const groupsQuery = z.object({
+  ...timeseriesQuery.shape,
+  fields: z
+    .string()
+    .max(1000)
+    .transform((raw) => raw.split(','))
+    .pipe(z.array(groupField).min(1).max(MAX_GROUP_FIELDS)),
+  limit: limit(100, 50),
+});
 const eventsQuery = z.object({
   ...filterShape,
   limit: limit(200, 50),
@@ -97,6 +124,16 @@ export function analyticsRoutes(app: FastifyInstance, useCases: AnalyticsUseCase
   app.get('/api/stats/breakdown', async (request) => {
     const query = breakdownQuery.parse(request.query);
     return useCases.getPropertyBreakdown.execute(toFilter(query), query.key, query.limit);
+  });
+
+  app.get('/api/stats/groups', async (request) => {
+    const query = groupsQuery.parse(request.query);
+    return useCases.getGroupedStats.execute(toFilter(query), {
+      fields: query.fields,
+      limit: query.limit,
+      interval: query.interval,
+      tzOffsetMinutes: query.tz,
+    });
   });
 
   app.get('/api/events', async (request) => {

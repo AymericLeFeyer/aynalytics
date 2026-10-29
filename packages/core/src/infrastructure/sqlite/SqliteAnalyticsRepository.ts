@@ -1,6 +1,9 @@
 import type {
   Dimension,
   EventListQuery,
+  GroupField,
+  GroupQuery,
+  GroupRow,
   Interval,
   Overview,
   PropertyBreakdown,
@@ -143,6 +146,17 @@ const JSON_VALUE_AS_TEXT = `CASE je.type
   WHEN 'null' THEN 'null'
   ELSE CAST(je.value AS TEXT) END`;
 
+/** Expression SQL d'un champ de regroupement ; la cle de propriete passe en parametre `@p<i>`. */
+function groupExpression(field: GroupField, index: number): string {
+  const expression =
+    'dimension' in field
+      ? DIMENSIONS[field.dimension]
+      : `(SELECT ${JSON_VALUE_AS_TEXT} FROM json_each(e.properties) je WHERE je.key = @p${index})`;
+  return `COALESCE(${expression}, '(aucun)')`;
+}
+
+type Row = Record<string, string | number>;
+
 export class SqliteAnalyticsRepository implements AnalyticsRepository {
   constructor(private readonly db: Db) {}
 
@@ -274,6 +288,62 @@ export class SqliteAnalyticsRepository implements AnalyticsRepository {
       )
       .get({ ...params, key }) as { count: number; sum: number; avg: number; min: number; max: number };
     return { rows, numeric: numeric.count > 0 ? numeric : null };
+  }
+
+  groupBy(filter: StatsFilter, query: GroupQuery): GroupRow[] {
+    const { sql, params } = buildWhere(filter);
+    const size = INTERVAL_MS[query.interval];
+    const offset = query.tzOffsetMinutes * 60_000;
+    const columns = query.fields.map((_, i) => `g${i}`);
+    const list = columns.join(', ');
+    const all: Params = { ...params, limit: query.limit, offset, size };
+    query.fields.forEach((field, i) => {
+      if ('property' in field) all[`p${i}`] = field.property;
+    });
+    // `base` calcule une fois les valeurs de groupe ; `top` fixe les groupes retenus (ordre
+    // deterministe) pour que la serie temporelle porte exactement sur les memes.
+    const cte = `WITH base AS (
+        SELECT ${query.fields.map((f, i) => `${groupExpression(f, i)} AS g${i}`).join(', ')},
+               e.ts AS ts, ${VISITOR_KEY} AS v
+        FROM events e WHERE ${sql}),
+      top AS (
+        SELECT ${list}, COUNT(*) AS count, COUNT(DISTINCT v) AS visitors,
+               MIN(ts) AS firstTs, MAX(ts) AS lastTs
+        FROM base GROUP BY ${list}
+        ORDER BY visitors DESC, count DESC, ${list} LIMIT @limit)`;
+    const groups = this.db
+      .prepare(`${cte} SELECT * FROM top ORDER BY visitors DESC, count DESC, ${list}`)
+      .all(all) as Row[];
+    const points = this.db
+      .prepare(
+        `${cte} SELECT ${columns.map((c) => `b.${c} AS ${c}`).join(', ')},
+                CAST((b.ts + @offset) / @size AS INTEGER) * @size - @offset AS bucket,
+                COUNT(*) AS count, COUNT(DISTINCT b.v) AS visitors
+         FROM base b JOIN top t ON ${columns.map((c) => `b.${c} = t.${c}`).join(' AND ')}
+         GROUP BY ${columns.map((c) => `b.${c}`).join(', ')}, bucket`,
+      )
+      .all(all) as Row[];
+
+    const keyOf = (row: Row) => JSON.stringify(columns.map((c) => row[c]));
+    const byGroup = new Map<string, Map<number, TimeseriesPoint>>();
+    for (const row of points) {
+      const series = byGroup.get(keyOf(row)) ?? new Map<number, TimeseriesPoint>();
+      const bucket = Number(row.bucket);
+      series.set(bucket, { bucket, count: Number(row.count), visitors: Number(row.visitors) });
+      byGroup.set(keyOf(row), series);
+    }
+    const allBuckets = buckets(filter, size, offset);
+    return groups.map((row) => {
+      const series = byGroup.get(keyOf(row));
+      return {
+        values: columns.map((c) => String(row[c])),
+        count: Number(row.count),
+        visitors: Number(row.visitors),
+        firstTs: Number(row.firstTs),
+        lastTs: Number(row.lastTs),
+        points: allBuckets.map((bucket) => series?.get(bucket) ?? { bucket, count: 0, visitors: 0 }),
+      };
+    });
   }
 
   listEvents(filter: StatsFilter, query: EventListQuery): StoredEvent[] {

@@ -4,6 +4,7 @@ import { SqliteAnalyticsRepository, SqliteEventRepository, SqliteSiteRepository 
 import Fastify from 'fastify';
 import type { FastifyInstance, FastifyServerOptions } from 'fastify';
 import { GetOverview } from './application/analytics/usecases/GetOverview';
+import { GetGroupedStats } from './application/analytics/usecases/GetGroupedStats';
 import { GetPropertyBreakdown } from './application/analytics/usecases/GetPropertyBreakdown';
 import { GetPropertyKeys } from './application/analytics/usecases/GetPropertyKeys';
 import { GetSitesBreakdown } from './application/analytics/usecases/GetSitesBreakdown';
@@ -57,6 +58,7 @@ export async function buildDashboard(options: DashboardOptions): Promise<Fastify
     getTopValues: new GetTopValues(analytics),
     getPropertyKeys: new GetPropertyKeys(analytics),
     getPropertyBreakdown: new GetPropertyBreakdown(analytics),
+    getGroupedStats: new GetGroupedStats(analytics),
     listEvents: new ListEvents(analytics),
   });
   await webRoutes(app, options.webDist);

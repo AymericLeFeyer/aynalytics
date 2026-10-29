@@ -6,8 +6,9 @@ import {
   useTimeseries,
   useTopValues,
 } from '../../application/analytics/usecases/analyticsUseCases';
-import type { EventType, StatsFilter } from '../../domain/analytics/entities/Stats';
+import type { EventType, GroupField, StatsFilter } from '../../domain/analytics/entities/Stats';
 import { EventsTable } from '../components/EventsTable';
+import { GroupedStatsCard } from '../components/GroupedStatsCard';
 import { KpiCards } from '../components/KpiCards';
 import { PropertyExplorer } from '../components/PropertyExplorer';
 import { TimeseriesChart } from '../components/TimeseriesChart';
@@ -18,20 +19,24 @@ import { useSiteNames } from '../hooks/useSiteNames';
 /** Etat de l'explorateur dans l'URL : partageable et compatible bouton retour. */
 function useExplorerParams() {
   const [params, setParams] = useSearchParams();
-  const set = (patch: Record<string, string | undefined>) =>
+  const set = (patch: Record<string, string | string[] | undefined>) =>
     setParams((prev) => {
       const next = new URLSearchParams(prev);
       for (const [key, value] of Object.entries(patch)) {
-        if (value) next.set(key, value);
-        else next.delete(key);
+        next.delete(key);
+        if (Array.isArray(value)) value.forEach((v) => next.append(key, v));
+        else if (value) next.set(key, value);
       }
       return next;
     });
+  const groups = params.getAll('group');
   return {
     type: (params.get('type') as EventType | null) ?? 'event',
     name: params.get('name') ?? undefined,
     key: params.get('key') ?? undefined,
     value: params.get('value') ?? undefined,
+    // Chaine stable pour la memoisation : getAll renvoie un nouveau tableau a chaque rendu.
+    groupKey: groups.join('\u0000'),
     set,
   };
 }
@@ -39,7 +44,8 @@ function useExplorerParams() {
 export function EventsPage() {
   const { filter: base, interval, setSiteId } = useFilters();
   const siteName = useSiteNames();
-  const { type, name, key, value, set } = useExplorerParams();
+  const { type, name, key, value, groupKey, set } = useExplorerParams();
+  const groupFields = useMemo(() => (groupKey ? (groupKey.split('\u0000') as GroupField[]) : []), [groupKey]);
 
   const typeFilter = useMemo<StatsFilter>(() => ({ ...base, type }), [base, type]);
   const filter = useMemo<StatsFilter>(() => ({ ...typeFilter, name }), [typeFilter, name]);
@@ -110,6 +116,12 @@ export function EventsPage() {
           onSelect={setSiteId}
         />
       )}
+
+      <GroupedStatsCard
+        filter={filter}
+        fields={groupFields}
+        onFieldsChange={(fields) => set({ group: fields })}
+      />
 
       <EventsTable
         filter={filter}

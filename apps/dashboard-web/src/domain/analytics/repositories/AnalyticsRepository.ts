@@ -2,6 +2,8 @@ import type {
   Dimension,
   EventPage,
   EventQuery,
+  GroupField,
+  GroupRow,
   Interval,
   OverviewComparison,
   PropertyBreakdown,
@@ -27,5 +29,12 @@ export interface AnalyticsRepository {
   top(filter: StatsFilter, dimension: Dimension, limit: number): Promise<TopRow[]>;
   propertyKeys(filter: StatsFilter): Promise<PropertyKeyRow[]>;
   breakdown(filter: StatsFilter, key: string, limit: number): Promise<PropertyBreakdown>;
+  groups(
+    filter: StatsFilter,
+    fields: GroupField[],
+    interval: Interval,
+    tzOffsetMinutes: number,
+    limit: number,
+  ): Promise<GroupRow[]>;
   events(filter: StatsFilter, query: EventQuery): Promise<EventPage>;
 }

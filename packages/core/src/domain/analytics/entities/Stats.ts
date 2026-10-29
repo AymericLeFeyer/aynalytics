@@ -94,6 +94,29 @@ export interface PropertyBreakdown {
   numeric: NumericSummary | null;
 }
 
+/** Champ de regroupement : dimension whitelistee ou cle de propriete libre. */
+export type GroupField = { dimension: Dimension } | { property: string };
+
+export const MAX_GROUP_FIELDS = 4;
+
+export interface GroupQuery {
+  fields: GroupField[];
+  limit: number;
+  interval: Interval;
+  tzOffsetMinutes: number;
+}
+
+/** Combinaison de valeurs (meme ordre que `fields`), `(aucun)` si absente. */
+export interface GroupRow {
+  values: string[];
+  count: number;
+  visitors: number;
+  firstTs: number;
+  lastTs: number;
+  /** Serie temporelle du groupe (trous remplis a 0). */
+  points: TimeseriesPoint[];
+}
+
 export interface EventListQuery {
   limit: number;
   /** Pagination par curseur : id strictement inferieur. */
