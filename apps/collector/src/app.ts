@@ -9,6 +9,7 @@ import { SiteRegistry } from './application/sites/SiteRegistry';
 import { registerSecurity } from './presentation/plugins/security';
 import { collectRoutes } from './presentation/routes/collect';
 import { sdkRoutes } from './presentation/routes/sdk';
+import { logoRoutes } from './presentation/routes/logo';
 
 export interface CollectorOptions {
   db: Db;
@@ -44,6 +45,7 @@ export async function buildCollector(options: CollectorOptions): Promise<Fastify
 
   app.get('/health', async () => ({ status: 'ok' }));
   sdkRoutes(app, options.sdkDir);
+  logoRoutes(app);
   collectRoutes(app, { registry, authorize, ingest, rateLimitPerMinute: options.rateLimitPerMinute });
 
   return app;
